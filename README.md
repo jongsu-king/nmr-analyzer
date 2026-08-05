@@ -1,16 +1,48 @@
 # NMR Analyzer
 
-A desktop viewer and analyser for 1D NMR spectra. Reads Bruker experiment
-folders, zipped Bruker data, ACD/Labs `.esp` exports and JCAMP-DX files;
-processes raw FIDs; and does peak picking, multiplet analysis, lineshape
-fitting and integration with conversion and molar-ratio readout.
+A desktop viewer and analyser for **1D and 2D NMR spectra**. Reads Bruker
+experiment folders, zipped Bruker data, ACD/Labs `.esp` exports and JCAMP-DX
+files; processes raw FIDs; and does peak picking, multiplet analysis,
+lineshape fitting, integration with conversion and molar-ratio readout, 2D
+contour display with cross-peak picking, and a SMILES structure check against
+the integrals.
 
-Pure Python with tkinter — **no third-party packages, no installation.**
+Pure Python with tkinter — **no third-party packages.**
 
+## Install and run
+
+Nothing to install: clone the repository and run it.
+
+```bash
+git clone https://github.com/jongsu-king/nmr-analyzer.git
+cd nmr-analyzer
+python3 -m nmranalyzer                          # empty, then File > Open
+python3 -m nmranalyzer spectrum.esp data.zip    # or open files directly
 ```
-python3 nmr_analyzer.py                        # empty, then File > Open
-python3 nmr_analyzer.py spectrum.esp data.zip  # or open files directly
+
+On macOS you can double-click **`run.command`** in Finder; on Windows,
+**`run.bat`**; on Linux, `./run.sh`.
+
+To put `nmr-analyzer` on your PATH instead:
+
+```bash
+pip install .
+nmr-analyzer
 ```
+
+Requires Python 3.8 or newer with tkinter, which ships with the python.org and
+Homebrew builds. On Debian/Ubuntu: `sudo apt install python3-tk`.
+
+## Tests
+
+```bash
+python3 run_tests.py
+```
+
+68 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
+Bruker submatrix de-tiling, the `.esp` axis flip) and the numerical claims
+(FFT against a direct DFT, deconvolution areas, aromatic hydrogen counts).
+They generate their own data, so no fixtures are committed.
 
 ## Supported formats
 
@@ -129,9 +161,11 @@ the raw data and the session will tell you which sources it could not find.
 
 ## Files
 
+All modules live in the `nmranalyzer/` package.
+
 | File | Contents |
 |---|---|
-| `nmr_analyzer.py` | tkinter GUI, plotting, interaction |
+| `app.py` | tkinter GUI, plotting, interaction |
 | `nmrio.py` | format readers and the `Spectrum` model |
 | `dsp.py` | FFT, apodisation, phasing, baseline, noise estimation |
 | `analysis.py` | peak picking, integration, multiplets, composition |
@@ -145,6 +179,9 @@ the raw data and the session will tell you which sources it could not find.
 | `smiles.py` | SMILES parser, formula/MW/DBE, symmetry classes |
 | `depict.py` | 2D structure layout and drawing |
 | `structwin.py` | the structure window and the integral cross-check |
+
+Plus `tests/` (the suite and its data generators), `run_tests.py`, and
+`run.command` / `run.sh` / `run.bat` launchers.
 
 ## Documents
 
@@ -279,6 +316,10 @@ Cross-check: three unrelated `.esp` files from this instrument put the TFA-d
 line at 11.4998, 11.5004 and 11.5001 ppm under this reading, i.e. ACD had
 referenced all three to the solvent at exactly 11.50.
 
+## Author
+
+Jongsu Lim
+
 ## Licence
 
-MIT.
+MIT — see [LICENSE](LICENSE).

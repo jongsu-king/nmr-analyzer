@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-import dsp
+from . import dsp
 
 MULTIPLICITY_NAMES = {
     1: ("s", "singlet"),

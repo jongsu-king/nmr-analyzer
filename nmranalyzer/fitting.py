@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 
-import dsp
+from . import dsp
 
 LN2 = math.log(2.0)
 SQRT_PI_OVER_LN2 = math.sqrt(math.pi / LN2)
@@ -191,7 +191,7 @@ def fit_region(spec, lo_ppm, hi_ppm, seed_peaks=None, max_iterations=60,
     else:
         seeds = []
     if not seeds:
-        import analysis
+        from . import analysis
         seeds = analysis.pick_peaks(spec, lo_ppm, hi_ppm, sensitivity=4.0)
     if not seeds:
         top = max(range(len(ys)), key=lambda i: ys[i])

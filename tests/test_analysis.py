@@ -4,10 +4,10 @@ import math
 import unittest
 
 import fixtures
-import analysis
-import fitting
-import solvents
-from nmrio import Spectrum
+from nmranalyzer import analysis
+from nmranalyzer import fitting
+from nmranalyzer import solvents
+from nmranalyzer.nmrio import Spectrum
 
 SF, SW, N = 500.0, 5000.0, 16384      # 10 ppm wide at 500 MHz
 OFFSET = 10.0

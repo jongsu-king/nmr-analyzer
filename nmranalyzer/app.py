@@ -16,16 +16,16 @@ import sys
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-import analysis
-import dsp
-import export
-import fitting
-import nmr2d
-import nmrio
-import plot2d
-import prefs
-import solvents
-import structwin
+from . import analysis
+from . import dsp
+from . import export
+from . import fitting
+from . import nmr2d
+from . import nmrio
+from . import plot2d
+from . import prefs
+from . import solvents
+from . import structwin
 
 APP_NAME = "NMR Analyzer"
 APP_VERSION = "1.1"
@@ -2152,13 +2152,46 @@ class App(tk.Tk):
         self.destroy()
 
 
-def main():
+USAGE = """NMR Analyzer %s - a viewer and analyser for 1D and 2D NMR spectra.
+
+Usage:
+  nmr-analyzer [FILE ...]
+
+FILE may be any of:
+  a Bruker experiment folder, or a .zip containing one
+  an ACD/Labs .esp spectrum
+  a JCAMP-DX .jdx / .dx file
+  a saved .nmrs session
+
+Options:
+  -h, --help     show this message and exit
+  -V, --version  show the version and exit
+
+With no arguments the application starts empty; use File > Open.
+"""
+
+
+def main(argv=None):
     import sys
+    from . import __version__
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if any(a in ("-h", "--help") for a in argv):
+        print(USAGE % __version__)
+        return 0
+    if any(a in ("-V", "--version") for a in argv):
+        print("NMR Analyzer %s" % __version__)
+        return 0
+
     app = App()
-    for path in sys.argv[1:]:
-        app._load(path)
+    for path in argv:
+        if path.lower().endswith((".nmrs", ".json")):
+            app._open_session_path(path)
+        else:
+            app._load(path)
     app.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

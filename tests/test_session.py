@@ -6,9 +6,9 @@ import unittest
 import xml.etree.ElementTree as ET
 
 import fixtures
-import analysis
-import export
-import nmrio
+from nmranalyzer import analysis
+from nmranalyzer import export
+from nmranalyzer import nmrio
 
 
 class TestSession(unittest.TestCase):

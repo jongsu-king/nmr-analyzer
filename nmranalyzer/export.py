@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 import os
 
-import analysis
-import nmrio
+from . import analysis
+from . import nmrio
 
 SESSION_FORMAT = "nmr-analyzer-session"
 SESSION_VERSION = 1

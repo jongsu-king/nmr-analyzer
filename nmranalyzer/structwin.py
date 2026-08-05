@@ -12,9 +12,9 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-import analysis
-import depict
-import smiles as smiles_mod
+from . import analysis
+from . import depict
+from . import smiles as smiles_mod
 
 
 class StructureWindow(tk.Toplevel):

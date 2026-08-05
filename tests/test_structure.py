@@ -4,8 +4,8 @@ import math
 import unittest
 
 import fixtures
-import depict
-import smiles
+from nmranalyzer import depict
+from nmranalyzer import smiles
 
 
 class TestParsing(unittest.TestCase):

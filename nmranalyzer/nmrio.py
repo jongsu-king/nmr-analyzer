@@ -19,7 +19,7 @@ import re
 import struct
 import zipfile
 
-import dsp
+from . import dsp
 
 
 class Spectrum:

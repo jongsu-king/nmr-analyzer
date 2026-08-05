@@ -6,8 +6,8 @@ import tempfile
 import unittest
 
 import fixtures
-import nmrio
-import nmr2d
+from nmranalyzer import nmrio
+from nmranalyzer import nmr2d
 
 
 class TestBruker1D(unittest.TestCase):
@@ -104,7 +104,7 @@ class TestBruker2D(unittest.TestCase):
 
 class TestContour(unittest.TestCase):
     def test_a_single_hill_gives_closed_contours(self):
-        import contour
+        from nmranalyzer import contour
         size = 40
         grid = [[100.0 * (1.0 - ((r - 20) ** 2 + (c - 20) ** 2) / 400.0)
                  for c in range(size)] for r in range(size)]
@@ -115,7 +115,7 @@ class TestContour(unittest.TestCase):
         self.assertLess(len(segments[50.0]), len(segments[20.0]))
 
     def test_flat_grid_has_no_contours(self):
-        import contour
+        from nmranalyzer import contour
         grid = [[5.0] * 10 for _ in range(10)]
         segments = contour.segments(grid, [1.0, 9.0])
         self.assertEqual(sum(len(v) for v in segments.values()), 0)

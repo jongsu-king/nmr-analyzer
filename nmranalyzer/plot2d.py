@@ -10,8 +10,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-import contour
-import nmr2d
+from . import contour
+from . import nmr2d
 
 PROJ = 42          # width/height of the projection strips
 AXIS_W = 48        # room for the F1 tick labels

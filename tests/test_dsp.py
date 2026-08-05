@@ -5,7 +5,7 @@ import math
 import unittest
 
 import fixtures  # noqa: F401  (puts the project root on sys.path)
-import dsp
+from nmranalyzer import dsp
 
 
 def naive_dft(data):

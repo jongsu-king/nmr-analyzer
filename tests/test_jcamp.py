@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 import fixtures
-import nmrio
+from nmranalyzer import nmrio
 
 
 class TestASDF(unittest.TestCase):
