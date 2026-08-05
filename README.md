@@ -22,6 +22,10 @@ Pick the file for your machine from the
 **[latest release](https://github.com/jongsu-king/nmr-analyzer/releases/latest)**.
 None of these need Python installed.
 
+![The release page](docs/install-download.png)
+
+Scroll to **Assets** on that page and download one of:
+
 | Your machine | Download | What to do |
 |---|---|---|
 | **Windows** | `NMR-Analyzer-<version>-windows-setup.exe` | Run it. Installs to Program Files with a Start-menu entry. |
