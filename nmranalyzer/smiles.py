@@ -200,6 +200,50 @@ class Molecule:
         return out
 
 
+    def carbon_environments(self):
+        """Distinct carbon environments, the 13C analogue of the above.
+
+        Quaternary carbons are included: unlike 1H they still give a signal,
+        just a weak one.
+        """
+        out = []
+        for group in self.equivalence_classes():
+            if group[0].symbol != "C":
+                continue
+            out.append(CarbonEnvironment(group))
+        out.sort(key=lambda env: (-len(env.atoms), env.label))
+        return out
+
+
+class CarbonEnvironment:
+    def __init__(self, atoms):
+        self.atoms = atoms
+
+    @property
+    def carrier(self):
+        return self.atoms[0]
+
+    @property
+    def count(self):
+        """Carbons in this environment (they all give one line)."""
+        return len(self.atoms)
+
+    @property
+    def label(self):
+        atom = self.carrier
+        hydrogens = atom.n_hydrogens
+        kind = {0: "quaternary C", 1: "CH", 2: "CH2", 3: "CH3"}.get(
+            hydrogens, "C-H%d" % hydrogens)
+        if atom.aromatic:
+            kind = "aromatic " + ("C" if hydrogens == 0 else "CH")
+        return kind
+
+    def describe(self):
+        sites = len(self.atoms)
+        where = " (%d equivalent)" % sites if sites > 1 else ""
+        return "%s%s" % (self.label, where)
+
+
 class ProtonEnvironment:
     def __init__(self, atoms, count):
         self.atoms = atoms          # equivalent heavy atoms carrying the H
