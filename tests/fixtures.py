@@ -7,6 +7,7 @@ in the code that produces them.
 
 from __future__ import annotations
 
+import cmath
 import math
 import os
 import struct
@@ -187,3 +188,64 @@ def write_esp(path, peaks=((7.26, 1.0), (2.10, 0.4)), npts=4096,
         fh.write(struct.pack("<%df" % npts, *ascending))
         fh.write(struct.pack("<%df" % npts, *([0.0] * npts)))
     return path
+
+
+def write_bruker_ser(root, peaks=((7.2, 3.5), (3.5, 7.2), (2.0, 2.0)),
+                     td2=512, td1=128, sf=500.0, sw=5000.0, o1=None,
+                     fnmode=4, decay=0.06):
+    """Write a raw 2D ``ser`` with States detection and known cross peaks.
+
+    ``peaks`` are (F2 ppm, F1 ppm).  Rows alternate cosine- and
+    sine-modulated, which is what States detection produces, and each row is
+    padded out to a 1024-byte boundary the way TopSpin writes them.
+    """
+    os.makedirs(root, exist_ok=True)
+    if o1 is None:
+        o1 = 5.0 * sf                      # carrier at 5 ppm
+    dwell2 = 1.0 / sw
+    dwell1 = 1.0 / sw
+    n_complex = td2 // 2
+    pairs = td1 // 2
+
+    def offset_hz(ppm):
+        return ppm * sf - o1               # relative to the carrier
+
+    rows = []
+    for k in range(pairs):
+        t1 = k * dwell1
+        for component in ("cos", "sin"):
+            row = []
+            for n in range(n_complex):
+                t2 = n * dwell2
+                total = 0j
+                for f2_ppm, f1_ppm in peaks:
+                    w1 = 2.0 * math.pi * offset_hz(f1_ppm)
+                    w2 = 2.0 * math.pi * offset_hz(f2_ppm)
+                    modulation = (math.cos(w1 * t1) if component == "cos"
+                                  else math.sin(w1 * t1))
+                    total += (modulation
+                              * cmath.exp(1j * w2 * t2)
+                              * math.exp(-t1 / decay) * math.exp(-t2 / decay))
+                row.append(total * 1e5)
+            rows.append(row)
+
+    width = 4                              # int32
+    row_bytes = ((td2 * width + 1023) // 1024) * 1024
+    padding = row_bytes - td2 * width
+    with open(os.path.join(root, "ser"), "wb") as fh:
+        for row in rows:
+            flat = []
+            for value in row:
+                flat.append(int(value.real))
+                flat.append(int(value.imag))
+            fh.write(struct.pack("<%di" % len(flat), *flat))
+            fh.write(b"\x00" * padding)
+
+    _write_params(os.path.join(root, "acqus"),
+                  [("SFO1", sf), ("SW_h", sw), ("O1", o1), ("NUC1", "<1H>"),
+                   ("PULPROG", "<cosygpqf>"), ("NS", 2), ("SOLVENT", "<CDCl3>"),
+                   ("TD", td2), ("BYTORDA", 0), ("DTYPA", 0), ("GRPDLY", 0)])
+    _write_params(os.path.join(root, "acqu2s"),
+                  [("SFO1", sf), ("SW_h", sw), ("O1", o1), ("NUC1", "<1H>"),
+                   ("TD", td1), ("FnMODE", fnmode)])
+    return root, list(peaks)

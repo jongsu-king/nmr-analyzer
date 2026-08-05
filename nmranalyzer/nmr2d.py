@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import struct
 
+from . import dsp
 from . import nmrio
 
 
@@ -256,12 +257,23 @@ def _read_one(store, root, path, procno):
     return Spectrum2D(name, data, f2, f1, meta=meta, source=path)
 
 
-def load_2d(path):
-    """Load 2D spectra from a folder or zip; empty list if there are none."""
+def load_2d(path, allow_raw=True, progress=None):
+    """Load 2D spectra from a folder or zip; empty list if there are none.
+
+    Processed ``2rr`` data is preferred.  If an experiment has a second
+    dimension but was never processed in TopSpin, the raw ``ser`` is
+    transformed instead so the data is still usable.
+    """
     if not (os.path.isdir(path) or path.lower().endswith(".zip")):
         return []
     try:
-        return read_bruker_2d(path)
+        processed = read_bruker_2d(path)
+    except Exception:
+        processed = []
+    if processed or not allow_raw:
+        return processed
+    try:
+        return read_bruker_ser(path, progress=progress)
     except Exception:
         return []
 
@@ -340,3 +352,202 @@ def projection(spec, axis="f2", mode="max"):
     if mode == "sum":
         return [sum(row) for row in spec.data]
     return [max(row) for row in spec.data]
+
+
+# ---------------------------------------------------------------------------
+# Raw 2D data (``ser``)
+# ---------------------------------------------------------------------------
+
+# Bruker ##$FnMODE in acqu2s: how the indirect dimension was detected.
+FNMODE_NAMES = {
+    0: "undefined", 1: "QF", 2: "QSEQ", 3: "TPPI",
+    4: "States", 5: "States-TPPI", 6: "Echo-Antiecho",
+}
+
+SER_BLOCK = 1024        # every FID in a ser file starts on a 1024-byte boundary
+
+
+def _read_ser_rows(raw, td1, td2, dtype, big_endian):
+    """Split a ``ser`` file into rows of complex points.
+
+    Each row is padded out to a 1024-byte boundary, so the stride is not
+    simply the number of points; reading it as one flat array shears the
+    spectrum along F1.
+    """
+    width = 8 if dtype == "float64" else 4
+    row_bytes = ((td2 * width + SER_BLOCK - 1) // SER_BLOCK) * SER_BLOCK
+    rows = []
+    for index in range(td1):
+        start = index * row_bytes
+        chunk = raw[start:start + td2 * width]
+        if len(chunk) < td2 * width:
+            break
+        values = nmrio._unpack(chunk, dtype, big_endian)
+        rows.append([complex(values[i], values[i + 1])
+                     for i in range(0, len(values) - 1, 2)])
+    return rows
+
+
+def _combine_f1(columns, fnmode):
+    """Turn the detected rows into one complex interferogram per F2 point.
+
+    ``columns`` is indexed ``[t1_row][f2_point]``; the return value is indexed
+    ``[f2_point][t1_point]``.
+    """
+    n_rows = len(columns)
+    if not n_rows:
+        return []
+    width = len(columns[0])
+
+    if fnmode in (FNMODE_STATES := 4, 5, 6):
+        pairs = n_rows // 2
+        out = [[0j] * pairs for _ in range(width)]
+        for k in range(pairs):
+            first = columns[2 * k]
+            second = columns[2 * k + 1]
+            for f in range(width):
+                if fnmode == 6:                       # Echo-Antiecho
+                    p, n = first[f], second[f]
+                    cosine = (p + n) / 2.0
+                    sine = (p - n) / 2.0j
+                else:
+                    cosine, sine = first[f], second[f]
+                value = complex(cosine.real, sine.real)
+                if fnmode == 5 and k % 2:             # States-TPPI
+                    value = -value
+                out[f][k] = value
+        return out
+
+    if fnmode == 3:                                   # TPPI: real modulation
+        out = [[0j] * n_rows for _ in range(width)]
+        for k, row in enumerate(columns):
+            for f in range(width):
+                out[f][k] = complex(row[f].real, 0.0)
+        return out
+
+    # QF and anything unrecognised: treat the rows as already complex.
+    out = [[0j] * n_rows for _ in range(width)]
+    for k, row in enumerate(columns):
+        for f in range(width):
+            out[f][k] = row[f]
+    return out
+
+
+def process_ser(rows, sw2_hz, sw1_hz, si2, si1, fnmode=4, grpdly=0.0,
+                lb2=0.3, lb1=0.3, magnitude_f1=False, progress=None):
+    """Transform a raw 2D FID into a ``[f1][f2]`` matrix of real intensities.
+
+    F2 is transformed first, row by row, exactly as for a 1D spectrum.  The
+    indirect dimension is then assembled from the detected rows according to
+    ``fnmode`` and transformed.
+    """
+    dwell2 = 1.0 / sw2_hz
+    f2_spectra = []
+    for index, row in enumerate(rows):
+        spectrum = dsp.transform(row, dwell2, si2, lb=lb2, grpdly=grpdly)
+        f2_spectra.append(spectrum)
+        if progress and index % 16 == 0:
+            progress("F2", index, len(rows))
+
+    interferograms = _combine_f1(f2_spectra, fnmode)
+    dwell1 = 1.0 / sw1_hz if sw1_hz else 1.0
+
+    n_f1 = si1 if fnmode != 3 else si1 * 2
+    columns = []
+    for index, series in enumerate(interferograms):
+        spectrum = dsp.transform(series, dwell1, n_f1, lb=lb1)
+        if fnmode == 3:                       # TPPI keeps half the transform
+            spectrum = spectrum[:si1]
+        columns.append(spectrum)
+        if progress and index % 64 == 0:
+            progress("F1", index, len(interferograms))
+
+    rows_out = []
+    for r in range(min(si1, len(columns[0]) if columns else 0)):
+        if magnitude_f1 or fnmode in (1, 2):
+            rows_out.append([abs(column[r]) for column in columns])
+        else:
+            rows_out.append([column[r].real for column in columns])
+    return rows_out
+
+
+def read_bruker_ser(path, si2=None, si1=None, lb2=0.3, lb1=0.3,
+                    progress=None):
+    """Read and transform every raw 2D experiment at ``path``.
+
+    Used when a dataset was acquired but never processed in TopSpin, so there
+    is no ``2rr`` to read.
+    """
+    store = nmrio._Store(path)
+    try:
+        out = []
+        for root in find_2d_experiments(store):
+            if not store.exists(root + "ser"):
+                continue
+            spec = _read_ser_one(store, root, path, si2, si1, lb2, lb1,
+                                 progress)
+            if spec is not None:
+                out.append(spec)
+        return out
+    finally:
+        store.close()
+
+
+def _read_ser_one(store, root, path, si2, si1, lb2, lb1, progress):
+    acqus = nmrio.parse_jcamp_params(store.read(root + "acqus").decode("latin-1"))
+    acqu2s = nmrio.parse_jcamp_params(store.read(root + "acqu2s").decode("latin-1"))
+
+    td2 = int(acqus.get("TD", 0))
+    td1 = int(acqu2s.get("TD", 0))
+    sw2 = float(acqus.get("SW_h", 0.0))
+    sw1 = float(acqu2s.get("SW_h", 0.0))
+    sf2 = float(acqus.get("SFO1", 0.0))
+    sf1 = float(acqu2s.get("SFO1", 0.0)) or sf2
+    if not (td2 and td1 and sw2 and sf2):
+        return None
+
+    fnmode = int(acqu2s.get("FnMODE", 4) or 4)
+    if fnmode in (0, 2):
+        fnmode = 4                      # undefined in practice means States
+    big = int(acqus.get("BYTORDA", 0)) == 1
+    dtype = "float64" if int(acqus.get("DTYPA", 0)) == 2 else "int32"
+    grpdly = float(acqus.get("GRPDLY", 0.0) or 0.0)
+
+    rows = _read_ser_rows(store.read(root + "ser"), td1, td2, dtype, big)
+    if not rows:
+        return None
+
+    size2 = si2 or dsp.next_pow2(len(rows[0]))
+    pairs = len(rows) // 2 if fnmode in (4, 5, 6) else len(rows)
+    size1 = si1 or dsp.next_pow2(max(pairs, 2))
+
+    data = process_ser(rows, sw2, sw1 or sw2, size2, size1, fnmode=fnmode,
+                       grpdly=grpdly, lb2=lb2, lb1=lb1, progress=progress)
+    if not data:
+        return None
+
+    o1 = float(acqus.get("O1", 0.0))
+    o2 = float(acqu2s.get("O1", o1))
+    f2 = Axis(len(data[0]), sf2, sw2, o1 / sf2 + (sw2 / sf2) / 2.0,
+              label="F2", nucleus=str(acqus.get("NUC1", "")))
+    f1 = Axis(len(data), sf1, sw1 or sw2,
+              o2 / sf1 + ((sw1 or sw2) / sf1) / 2.0,
+              label="F1", nucleus=str(acqu2s.get("NUC1", "")))
+
+    expno = root.rstrip("/").split("/")[-1]
+    meta = {
+        "Experiment": expno,
+        "Pulse program": acqus.get("PULPROG", ""),
+        "F2 nucleus": acqus.get("NUC1", ""),
+        "F1 nucleus": acqu2s.get("NUC1", ""),
+        "F2 size": f2.size,
+        "F1 size": f1.size,
+        "F2 frequency (MHz)": round(sf2, 4),
+        "F1 frequency (MHz)": round(sf1, 4),
+        "Solvent": acqus.get("SOLVENT", ""),
+        "Scans": acqus.get("NS", ""),
+        "Detection (FnMODE)": FNMODE_NAMES.get(fnmode, str(fnmode)),
+        "Format": "Bruker 2D (from raw ser)",
+    }
+    name = "%s [%s] raw" % (os.path.basename(path), expno)
+    return Spectrum2D(name, data, f2, f1, meta=meta, source=path)

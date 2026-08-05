@@ -40,6 +40,7 @@ class Plot2DWindow(tk.Toplevel):
         self.show_negative = tk.BooleanVar(value=True)
         self.show_diagonal = tk.BooleanVar(value=spec.is_homonuclear())
         self.show_projections = tk.BooleanVar(value=True)
+        self.sensitivity = tk.DoubleVar(value=12.0)
         self.status = tk.StringVar(value="")
 
         self._drag = None
@@ -81,6 +82,10 @@ class Plot2DWindow(tk.Toplevel):
                         command=self.redraw).pack(side="left")
 
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        ttk.Label(bar, text="Sensitivity").pack(side="left")
+        ttk.Spinbox(bar, from_=2.0, to=500.0, increment=2.0, width=6,
+                    textvariable=self.sensitivity,
+                    command=self.pick_peaks).pack(side="left", padx=(2, 6))
         ttk.Button(bar, text="Pick Peaks",
                    command=self.pick_peaks).pack(side="left", padx=2)
         ttk.Button(bar, text="Reset",
@@ -415,8 +420,8 @@ class Plot2DWindow(tk.Toplevel):
         self.update_idletasks()
         try:
             spec.peaks = nmr2d.pick_peaks_2d(
-                spec, sensitivity=max(4.0, 12.0), window=window,
-                skip_diagonal_ppm=skip)
+                spec, sensitivity=max(2.0, float(self.sensitivity.get())),
+                window=window, skip_diagonal_ppm=skip)
         finally:
             self.config(cursor="")
 
@@ -428,7 +433,10 @@ class Plot2DWindow(tk.Toplevel):
                                      "%.4g" % peak.intensity))
         self.redraw()
         note = " (diagonal excluded)" if skip else ""
-        self.status.set("Found %d cross peaks%s" % (len(spec.peaks), note))
+        hint = ("   raise Sensitivity to drop the weak ones"
+                if len(spec.peaks) > 30 else "")
+        self.status.set("Found %d cross peaks%s at %g x noise%s"
+                        % (len(spec.peaks), note, self.sensitivity.get(), hint))
 
     def _peak_selected(self, _event):
         sel = self.tree.selection()

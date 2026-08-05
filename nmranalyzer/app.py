@@ -1269,6 +1269,19 @@ class App(tk.Tk):
         for path in paths:
             self._load(path)
 
+    def _load_2d_with_progress(self, path):
+        """Find 2D data, transforming a raw ``ser`` if that is all there is."""
+        def report(stage, done, total):
+            self.status.set("Transforming 2D data (%s %d/%d)..."
+                            % (stage, done, total))
+            self.update_idletasks()
+
+        self.config(cursor="watch")
+        try:
+            return nmr2d.load_2d(path, progress=report)
+        finally:
+            self.config(cursor="")
+
     def _register_2d(self, path, spectra):
         """Remember any 2D experiments and offer to open the viewer."""
         for spec in spectra:
@@ -1332,7 +1345,7 @@ class App(tk.Tk):
             self._load(path)
 
     def _load(self, path):
-        two_d = nmr2d.load_2d(path)
+        two_d = self._load_2d_with_progress(path)
         try:
             loaded = nmrio.load(path)
         except Exception as exc:                       # surfaced to the user

@@ -9,6 +9,12 @@ the integrals.
 
 Pure Python with tkinter — **no third-party packages.**
 
+![The main window](docs/01-main.png)
+
+Two spectra overlaid in the aromatic region, baseline-corrected, with peaks
+picked, integrals assigned and one multiplet deconvoluted. The integral table
+gives the multiplicity and *J* for each region.
+
 ## Install and run
 
 Nothing to install: clone the repository and run it.
@@ -46,16 +52,17 @@ Homebrew builds. On Debian/Ubuntu: `sudo apt install python3-tk`.
 python3 run_tests.py
 ```
 
-81 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
+87 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
 Bruker submatrix de-tiling, the `.esp` axis flip) and the numerical claims
 (FFT against a direct DFT, deconvolution areas, aromatic hydrogen counts).
-They generate their own data, so no fixtures are committed.
+They generate their own data — including a raw `ser` with States detection and
+deliberately awkward row padding — so no binary fixtures are committed.
 
 ## Supported formats
 
 | Input | What is read |
 |---|---|
-| Bruker folder or `.zip` | every experiment containing `acqus`; raw `fid`, processed `pdata/1/1r` + `1i`, `procs`, `title`; 2D via `acqu2s` + `pdata/1/2rr` |
+| Bruker folder or `.zip` | every experiment containing `acqus`; raw `fid`, processed `1r` + `1i`; 2D from processed `2rr` **or** from the raw `ser` |
 | ACD/Labs `.esp` | real and imaginary spectrum, referenced ppm axis, acquisition metadata |
 | JCAMP-DX `.jdx` / `.dx` | `XYDATA` and NTUPLES `DATA TABLE` in PAC, SQZ, DIF and DUP forms; multi-block LINK files; FIDs |
 
@@ -127,6 +134,18 @@ starting material. With three or more, the product ratio is reported too.
 Open a Bruker folder or zip that contains an `acqu2s` and the 2D viewer opens
 in its own window; further ones are listed under `Tools > 2D Spectra`.
 
+![The 2D viewer](docs/02-2d.png)
+
+A COSY transformed from the raw `ser`, with the diagonal guide, skyline
+projections and picked cross peaks.
+
+If the experiment has a processed `2rr` it is used directly. If it was
+acquired but never processed in TopSpin, the raw `ser` is transformed instead:
+F2 row by row, then the indirect dimension assembled according to the
+detection mode in `##$FnMODE` — States, States-TPPI, TPPI, Echo-Antiecho or
+QF — and transformed. The Info panel records which mode was used and whether
+the data came from `2rr` or from the raw FID.
+
 Contours are recomputed for whatever region is on screen at the resolution of
 the screen, so zooming in reveals detail rather than magnifying a coarse grid.
 *Base level %* sets the lowest contour as a fraction of the strongest point,
@@ -143,6 +162,8 @@ homonuclear spectra, automatically excludes the diagonal.
 `Tools > Structure` takes a SMILES string, draws the structure and reports the
 formula, molecular mass, DBE and ring count, plus the ¹H and ¹³C environments
 the connectivity predicts and an estimated shift for each.
+
+![The structure window](docs/03-structure.png)
 
 Press *Check against spectrum* and the integrals of the active spectrum are
 scaled so their total equals the proton count of that formula. Each region is
