@@ -57,6 +57,7 @@ MARGIN_L = 12
 MARGIN_R = 12
 MARGIN_T = 14
 AXIS_H = 34
+BASELINE_GAP = 26     # room below the baseline for negative excursions
 
 
 # ---------------------------------------------------------------------------
@@ -81,8 +82,11 @@ class PlotCanvas(tk.Canvas):
         self.show_cursor = True
 
         self._drag_start = None
+        self._drag_start_y = None
         self._drag_kind = None
         self._marker = None
+        self._history = []
+        self._forward = []
 
         self.bind("<Configure>", lambda e: self.redraw())
         self.bind("<ButtonPress-1>", self._on_press)
@@ -96,6 +100,20 @@ class PlotCanvas(tk.Canvas):
         self.bind("<MouseWheel>", self._on_wheel)
         self.bind("<Button-4>", lambda e: self._on_wheel(e, 1))
         self.bind("<Button-5>", lambda e: self._on_wheel(e, -1))
+
+        # Keyboard navigation; the canvas takes focus when the pointer enters
+        # so the arrow keys work without an extra click.
+        self.configure(takefocus=1)
+        self.bind("<Enter>", lambda e: self.focus_set())
+        self.bind("<Left>", lambda e: self.pan_by(0.15))
+        self.bind("<Right>", lambda e: self.pan_by(-0.15))
+        self.bind("<Up>", lambda e: self._nudge_intensity(1.25))
+        self.bind("<Down>", lambda e: self._nudge_intensity(0.8))
+        self.bind("<plus>", lambda e: self.zoom_by(0.7))
+        self.bind("<equal>", lambda e: self.zoom_by(0.7))
+        self.bind("<minus>", lambda e: self.zoom_by(1.4))
+        self.bind("<Home>", lambda e: self.app.reset_zoom())
+        self.bind("<BackSpace>", lambda e: self.go_back())
 
     # -- geometry -----------------------------------------------------------
 
@@ -113,6 +131,15 @@ class PlotCanvas(tk.Canvas):
 
     @property
     def plot_bottom(self):
+        """Where the spectrum baseline sits.
+
+        Kept clear of the axis so that noise dipping below zero does not
+        scribble over the tick labels.
+        """
+        return max(MARGIN_T + 10, self.winfo_height() - AXIS_H - BASELINE_GAP)
+
+    @property
+    def axis_y(self):
         return max(MARGIN_T + 10, self.winfo_height() - AXIS_H)
 
     def x_of(self, ppm):
@@ -207,12 +234,18 @@ class PlotCanvas(tk.Canvas):
                                  text=spec.name, anchor="ne",
                                  fill=spec.color, font=("TkDefaultFont", 9))
 
+        if not self.stack:
+            # A faint zero line makes phase and baseline errors obvious.
+            self.create_line(self.plot_left, self.plot_bottom,
+                             self.plot_right, self.plot_bottom,
+                             fill="#dddddd")
+
         if not self.stack and len(specs) > 1:
             self._draw_legend(specs)
 
         if self._marker is not None:
             x = self.x_of(self._marker)
-            self.create_line(x, self.plot_top, x, self.plot_bottom,
+            self.create_line(x, self.plot_top, x, self.axis_y,
                              fill="#cc0000", dash=(3, 3))
 
     def _visible_slice(self, spec):
@@ -376,7 +409,7 @@ class PlotCanvas(tk.Canvas):
             shown += 1
 
     def _draw_axis(self):
-        y = self.plot_bottom
+        y = self.axis_y
         self.create_line(self.plot_left, y, self.plot_right, y, fill="#333333")
         span = self.view_left - self.view_right
         step = _nice_step(span)
@@ -409,6 +442,26 @@ class PlotCanvas(tk.Canvas):
         self.create_text(self.plot_right, y + 8, text="ppm", anchor="ne",
                          font=("TkDefaultFont", 9), fill="#666666")
 
+        # The axis already gives the ppm range, so this only reports what the
+        # axis cannot: the width in Hz when zoomed in, and the intensity
+        # multiplier.  Drawn inside the plot on a backing so it never fights
+        # with the tick labels.
+        span = self.view_left - self.view_right
+        spec = self.app.active_spectrum()
+        bits = []
+        if spec and span * spec.sf < 2000:
+            bits.append("%.0f Hz wide" % (span * spec.sf))
+        if abs(self.y_scale - 1.0) > 0.01:
+            bits.append("intensity x%.2f" % self.y_scale)
+        if bits:
+            item = self.create_text(self.plot_left + 2, self.axis_y - 3,
+                                    text="   ".join(bits), anchor="sw",
+                                    font=("TkDefaultFont", 9), fill="#888888")
+            x1, y1, x2, y2 = self.bbox(item)
+            backing = self.create_rectangle(x1 - 2, y1 - 1, x2 + 2, y2 + 1,
+                                            fill="white", outline="")
+            self.tag_lower(backing, item)
+
     def _draw_legend(self, specs):
         """Name each trace in overlay mode; stacked mode labels its own lanes.
 
@@ -430,6 +483,7 @@ class PlotCanvas(tk.Canvas):
 
     def _on_press(self, event):
         self._drag_start = event.x
+        self._drag_start_y = event.y
         self._drag_kind = self.app.mode.get()
         if self._drag_kind == MODE_REFERENCE:
             self.app.set_reference(self.ppm_of(event.x))
@@ -443,17 +497,29 @@ class PlotCanvas(tk.Canvas):
             return
         self.delete("rubber")
         self.delete("cursor")
-        colour = "#cc0000" if self._drag_kind == MODE_INTEGRATE else "#3366cc"
-        self.create_rectangle(self._drag_start, self.plot_top, event.x,
-                              self.plot_bottom, outline=colour,
-                              dash=(4, 3), tags="rubber")
-        # Live readout of what the selection covers.
+        integrating = self._drag_kind == MODE_INTEGRATE
+        colour = "#cc0000" if integrating else "#3366cc"
+
+        # In zoom mode a box that is tall as well as wide also sets the
+        # intensity, so one gesture frames a region the way you want it.
+        top = self.plot_top
+        boxing = (not integrating
+                  and abs(event.y - self._drag_start_y) > 25)
+        bottom = self.axis_y
+        if boxing:
+            top = min(self._drag_start_y, event.y)
+            bottom = max(self._drag_start_y, event.y)
+        self.create_rectangle(self._drag_start, top, event.x, bottom,
+                              outline=colour, dash=(4, 3), tags="rubber")
+
         p1, p2 = self.ppm_of(self._drag_start), self.ppm_of(event.x)
         lo, hi = min(p1, p2), max(p1, p2)
         spec = self.app.active_spectrum()
         text = "%.3f - %.3f ppm  (%.3f ppm" % (hi, lo, hi - lo)
         text += ", %.1f Hz)" % ((hi - lo) * spec.sf) if spec else ")"
-        self.create_text((self._drag_start + event.x) / 2, self.plot_top + 2,
+        if boxing:
+            text += "   + intensity"
+        self.create_text((self._drag_start + event.x) / 2, top + 2,
                          text=text, anchor="n", fill=colour,
                          font=("TkDefaultFont", 9), tags="rubber")
 
@@ -462,16 +528,27 @@ class PlotCanvas(tk.Canvas):
             return
         self.delete("rubber")
         x1, x2 = self._drag_start, event.x
+        y1, y2 = self._drag_start_y, event.y
         self._drag_start = None
+        self._drag_start_y = None
         if abs(x2 - x1) < 4:
             return
         p1, p2 = self.ppm_of(x1), self.ppm_of(x2)
         if self._drag_kind == MODE_INTEGRATE:
             self.app.add_region(min(p1, p2), max(p1, p2))
-        else:
-            self.set_view(max(p1, p2), min(p1, p2))
+            return
+
+        self.push_history()
+        if abs(y2 - y1) > 25:
+            # Scale so the boxed height fills the plot.
+            height = self.plot_bottom - self.plot_top
+            boxed = abs(y2 - y1)
+            if boxed > 2:
+                self.y_scale *= height / boxed
+        self.set_view(max(p1, p2), min(p1, p2))
 
     def _on_pan_press(self, event):
+        self.push_history()
         self._pan_anchor = (event.x, self.view_left, self.view_right)
 
     def _on_pan_drag(self, event):
@@ -488,36 +565,129 @@ class PlotCanvas(tk.Canvas):
     def _on_motion(self, event):
         ppm = self.ppm_of(event.x)
         spec = self.app.active_spectrum()
-        hz = ppm * spec.sf if spec else 0.0
-        self.app.status.set("%.4f ppm    %.2f Hz" % (ppm, hz))
+        if spec:
+            index = spec.clamp(spec.index(ppm))
+            readout = ("%.4f ppm    %.2f Hz    intensity %.3g"
+                       % (ppm, ppm * spec.sf, spec.real[index]))
+            nearest = self._nearest_peak(spec, ppm)
+            if nearest is not None:
+                readout += "    nearest peak %.4f ppm" % nearest
+        else:
+            readout = "%.4f ppm" % ppm
+        self.app.status.set(readout)
         self._draw_cursor(event.x, ppm, spec)
+
+    def _nearest_peak(self, spec, ppm):
+        """The picked peak under the pointer, within a few pixels."""
+        if not spec.peaks:
+            return None
+        span = self.view_left - self.view_right
+        width = max(self.plot_right - self.plot_left, 1)
+        tolerance = span / width * 6.0
+        best = min(spec.peaks, key=lambda p: abs(p.ppm - ppm))
+        return best.ppm if abs(best.ppm - ppm) <= tolerance else None
 
     def _draw_cursor(self, x, ppm, spec):
         """A crosshair with a live ppm readout, redrawn without a full repaint."""
         self.delete("cursor")
         if not self.show_cursor or x < self.plot_left or x > self.plot_right:
             return
-        self.create_line(x, self.plot_top, x, self.plot_bottom,
+        self.create_line(x, self.plot_top, x, self.axis_y,
                          fill="#9999bb", dash=(2, 4), tags="cursor")
-        label = "%.3f" % ppm
-        anchor = "nw" if x < self.plot_right - 60 else "ne"
-        offset = 4 if anchor == "nw" else -4
-        self.create_text(x + offset, self.plot_top + 2, text=label,
-                         anchor=anchor, fill="#5555aa",
-                         font=("TkDefaultFont", 9), tags="cursor")
+        anchor = "sw" if x < self.plot_right - 60 else "se"
+        offset = 4 if anchor == "sw" else -4
+        item = self.create_text(x + offset, self.axis_y - 3,
+                                text="%.3f" % ppm, anchor=anchor,
+                                fill="#5555aa", font=("TkDefaultFont", 9),
+                                tags="cursor")
+        x1, y1, x2, y2 = self.bbox(item)
+        backing = self.create_rectangle(x1 - 2, y1, x2 + 2, y2,
+                                        fill="white", outline="", tags="cursor")
+        self.tag_lower(backing, item)
 
     def _on_leave(self, _event):
         self.delete("cursor")
 
+    def _nudge_intensity(self, factor):
+        self.y_scale *= factor
+        self.redraw()
+        self.app.status.set("Intensity x%.2f" % self.y_scale)
+
     def _on_wheel(self, event, direction=None):
+        """Zoom proportionally to how far the wheel or trackpad moved.
+
+        Using only the sign of ``delta`` makes a trackpad feel jumpy, because
+        it sends many small events; scaling by the magnitude turns the same
+        gesture into a smooth zoom.
+        """
         if direction is None:
-            direction = 1 if event.delta > 0 else -1
-        state = getattr(event, "state", 0)
-        if state & 0x0001 or state & 0x0004:   # Shift or Control: intensity
-            self.y_scale *= 1.25 if direction > 0 else 0.8
-            self.redraw()
+            amount = getattr(event, "delta", 0)
+            # Classic mice send +/-120 per notch; trackpads send small values.
+            steps = amount / 120.0 if abs(amount) >= 120 else amount / 8.0
         else:
-            self.zoom_at(self.ppm_of(event.x), 0.8 if direction > 0 else 1.25)
+            steps = float(direction)
+        steps = max(-4.0, min(4.0, steps))
+        if steps == 0.0:
+            return
+
+        state = getattr(event, "state", 0)
+        if state & 0x0001:                      # Shift: intensity
+            self.y_scale *= 1.15 ** steps
+            self.redraw()
+            self.app.status.set("Intensity x%.2f" % self.y_scale)
+        elif state & 0x0004 or state & 0x0008:  # Control / Command: pan
+            span = self.view_left - self.view_right
+            shift = span * 0.06 * steps
+            self.set_view(self.view_left + shift, self.view_right + shift)
+        else:
+            self.zoom_at(self.ppm_of(event.x), 0.88 ** steps)
+
+    # -- zoom history -------------------------------------------------------
+
+    def push_history(self):
+        """Remember the current window so the user can step back to it."""
+        entry = (self.view_left, self.view_right, self.y_scale)
+        if self._history and self._history[-1] == entry:
+            return
+        self._history.append(entry)
+        del self._history[:-40]
+        self._forward.clear()
+        self.app.refresh_nav_buttons()
+
+    def go_back(self):
+        if not self._history:
+            return False
+        self._forward.append((self.view_left, self.view_right, self.y_scale))
+        left, right, scale = self._history.pop()
+        self.y_scale = scale
+        self.view_left, self.view_right = left, right
+        self.redraw()
+        self.app.refresh_nav_buttons()
+        return True
+
+    def go_forward(self):
+        if not self._forward:
+            return False
+        self._history.append((self.view_left, self.view_right, self.y_scale))
+        left, right, scale = self._forward.pop()
+        self.y_scale = scale
+        self.view_left, self.view_right = left, right
+        self.redraw()
+        self.app.refresh_nav_buttons()
+        return True
+
+    # -- keyboard -----------------------------------------------------------
+
+    def pan_by(self, fraction):
+        span = self.view_left - self.view_right
+        shift = span * fraction
+        self.push_history()
+        self.set_view(self.view_left + shift, self.view_right + shift)
+
+    def zoom_by(self, factor):
+        centre = (self.view_left + self.view_right) / 2.0
+        self.push_history()
+        self.zoom_at(centre, factor)
 
 
 def _nice_step(span):
@@ -568,6 +738,9 @@ class App(tk.Tk):
         self._build_layout()
         self._apply_preferences()
         self.reset_zoom()
+        self.plot._history.clear()
+        self.plot._forward.clear()
+        self.refresh_nav_buttons()
         self._update_title()
 
         self.protocol("WM_DELETE_WINDOW", self.quit_app)
@@ -790,6 +963,10 @@ class App(tk.Tk):
 
         # -- View
         view_menu = tk.Menu(menu, tearoff=0)
+        view_menu.add_command(label="Back", accelerator=self._accel("["),
+                              command=self.view_back)
+        view_menu.add_command(label="Forward", accelerator=self._accel("]"),
+                              command=self.view_forward)
         view_menu.add_command(label="Reset Zoom", accelerator=self._accel("r"),
                               command=self.reset_zoom)
         view_menu.add_command(label="Zoom Aromatic (6-9 ppm)",
@@ -890,6 +1067,9 @@ class App(tk.Tk):
                       lambda e: self.scale_intensity(1.4))
         self.bind_all("<%s-minus>" % ACCEL_MOD,
                       lambda e: self.scale_intensity(1 / 1.4))
+        self.bind_all("<%s-bracketleft>" % ACCEL_MOD, lambda e: self.view_back())
+        self.bind_all("<%s-bracketright>" % ACCEL_MOD,
+                      lambda e: self.view_forward())
 
     def refresh_recent_menu(self):
         self.recent_menu.delete(0, "end")
@@ -939,9 +1119,9 @@ class App(tk.Tk):
         bar.pack(side="bottom", fill="x")
         ttk.Label(bar, textvariable=self.status).pack(side="left")
         ttk.Label(bar, foreground="#777777",
-                  text="drag = zoom/integrate · right-drag = pan · "
+                  text="drag = zoom (tall box also scales) · right-drag = pan · "
                        "wheel = zoom · shift+wheel = intensity · "
-                       "double-click = reset").pack(side="right")
+                       "arrows = pan/scale · backspace = back").pack(side="right")
 
     def _build_toolbar(self):
         """Two rows: document and mouse mode on top, analysis and view below."""
@@ -1007,13 +1187,14 @@ class App(tk.Tk):
                "Deconvolute the selected region (%sF)" % ACCEL_TEXT)
 
         g = group(row)
+        self.btn_back = button(g, "<", self.view_back,
+                               "Previous view (%s[ or Backspace)" % ACCEL_TEXT)
+        self.btn_forward = button(g, ">", self.view_forward,
+                                  "Next view (%s])" % ACCEL_TEXT)
         button(g, "Reset", self.reset_zoom, "Show the whole spectrum (%sR)" % ACCEL_TEXT)
-        button(g, "Arom.", lambda: self.plot.set_view(9.0, 6.0),
-               "Zoom to the aromatic region, 6-9 ppm")
-        button(g, "Aliph.", lambda: self.plot.set_view(5.0, 0.0),
-               "Zoom to the aliphatic region, 0-5 ppm")
-        button(g, "+", lambda: self.scale_intensity(1.4), "Taller")
-        button(g, "-", lambda: self.scale_intensity(1 / 1.4), "Shorter")
+        button(g, "+", lambda: self.scale_intensity(1.4), "Taller (%s+)" % ACCEL_TEXT)
+        button(g, "-", lambda: self.scale_intensity(1 / 1.4),
+               "Shorter (%s-)" % ACCEL_TEXT)
 
         g = group(row)
         for text, var in (("Stack", self.var_stack),
@@ -1452,6 +1633,23 @@ class App(tk.Tk):
         self.plot.show_grid = self.var_grid.get()
         self.plot.redraw()
 
+    def view_back(self):
+        if not self.plot.go_back():
+            self.status.set("No earlier view to go back to.")
+
+    def view_forward(self):
+        if not self.plot.go_forward():
+            self.status.set("No later view to go forward to.")
+
+    def refresh_nav_buttons(self):
+        """Grey out the view arrows when there is nowhere to go."""
+        if not hasattr(self, "btn_back"):
+            return
+        self.btn_back.state(("!disabled",) if self.plot._history
+                            else ("disabled",))
+        self.btn_forward.state(("!disabled",) if self.plot._forward
+                               else ("disabled",))
+
     def scale_intensity(self, factor):
         self.plot.y_scale *= factor
         self.plot.redraw()
@@ -1531,6 +1729,7 @@ class App(tk.Tk):
             ("", ""),
             ("View", ""),
             ("Reset zoom", "%sR" % m),
+            ("Back / forward through views", "%s[  %s]" % (m, m)),
             ("Taller / shorter", "%s+  %s-" % (m, m)),
             ("", ""),
             ("Tools", ""),
@@ -1543,10 +1742,18 @@ class App(tk.Tk):
             ("", ""),
             ("Mouse", ""),
             ("Zoom to selection / create region", "drag"),
-            ("Pan", "right-drag"),
+            ("Zoom and scale together", "drag a tall box"),
+            ("Pan", "right-drag, or ctrl+wheel"),
             ("Zoom in and out", "wheel"),
             ("Intensity", "shift+wheel"),
             ("Reset zoom", "double-click"),
+            ("", ""),
+            ("Keyboard (pointer over the plot)", ""),
+            ("Pan left / right", "left / right arrow"),
+            ("Taller / shorter", "up / down arrow"),
+            ("Zoom in / out", "+ / -"),
+            ("Whole spectrum", "Home"),
+            ("Previous view", "Backspace"),
         ]
         lines = []
         for left, right in rows:
@@ -1559,6 +1766,8 @@ class App(tk.Tk):
         messagebox.showinfo("Keyboard Shortcuts", "\n".join(lines))
 
     def reset_zoom(self):
+        if getattr(self, "plot", None) is not None and self.spectra:
+            self.plot.push_history()
         visible = [s for s in self.spectra if s.visible]
         if not visible:
             self.plot.set_view(12.0, -1.0)

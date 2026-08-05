@@ -13,7 +13,8 @@ Pure Python with tkinter — **no third-party packages.**
 
 Two spectra overlaid in the aromatic region, baseline-corrected, with peaks
 picked, integrals assigned and one multiplet deconvoluted. The integral table
-gives the multiplicity and *J* for each region.
+gives the multiplicity and *J* for each region. The faint line across the plot
+is zero, which makes a phase or baseline error obvious at a glance.
 
 ## Install and run
 
@@ -80,11 +81,27 @@ tab records which one.
    fits PH0/PH1 by minimising the negative spectral area. *Apply to all
    spectra* propagates the settings across the whole list, which is what you
    want before an overlay comparison.
-3. **Navigate.** Drag to zoom, right-drag to pan, wheel to zoom, shift+wheel
-   for intensity, double-click to reset. A crosshair follows the pointer with
-   a live ppm readout, and dragging shows the width of the selection in both
-   ppm and Hz. The view is clamped to the data, so zooming out cannot lose the
-   spectrum off-screen.
+3. **Navigate.**
+
+   | | |
+   |---|---|
+   | drag | zoom to the selection; drag a *tall* box and it scales the intensity to match |
+   | right-drag | pan |
+   | wheel | zoom at the pointer, proportional to how far you scrolled |
+   | shift+wheel | intensity |
+   | ctrl/cmd+wheel | pan |
+   | double-click | whole spectrum |
+   | ← → | pan · ↑ ↓ intensity · `+` `-` zoom · `Home` reset |
+   | `<` `>` buttons, ⌘\[ ⌘\] , Backspace | step back and forward through views |
+
+   Wheel zoom scales with the size of the scroll rather than counting notches,
+   so a trackpad gives a smooth zoom instead of jumping. The view is clamped
+   to the data, so zooming out cannot lose the spectrum off-screen, and every
+   zoom and pan is remembered — `<` walks back through them.
+
+   A crosshair follows the pointer and the status bar reads out the shift in
+   ppm and Hz, the intensity under the cursor, and the nearest picked peak.
+   Dragging shows the width of the selection in both ppm and Hz.
 4. **Pick peaks** — operates on the *displayed* region, so zoom into the range
    you care about first. Raise *Sensitivity* to reject more noise.
 5. **Integrate.** Either drag across a signal in Integrate mode, or press
