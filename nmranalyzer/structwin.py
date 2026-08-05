@@ -14,6 +14,7 @@ from tkinter import messagebox, ttk
 
 from . import analysis
 from . import depict
+from . import shifts
 from . import smiles as smiles_mod
 
 
@@ -29,6 +30,7 @@ class StructureWindow(tk.Toplevel):
         self.smiles_text = tk.StringVar(value="")
         self.status = tk.StringVar(value="Enter a SMILES string and press Draw.")
         self.exchangeable = tk.BooleanVar(value=False)
+        self.nucleus = tk.StringVar(value="1H")
 
         self._build()
 
@@ -73,15 +75,24 @@ class StructureWindow(tk.Toplevel):
                                font=("TkFixedFont", 11))
         self.summary.pack(fill="x")
 
-        ttk.Label(right, text="Expected proton environments",
-                  font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(8, 2))
-        self.env_tree = ttk.Treeview(right, columns=("h", "kind", "sites"),
-                                     show="headings", height=6)
-        for key, title, width in (("h", "H", 40), ("kind", "Environment", 150),
-                                  ("sites", "Sites", 50)):
+        header = ttk.Frame(right)
+        header.pack(fill="x", pady=(8, 2))
+        ttk.Label(header, text="Predicted environments",
+                  font=("TkDefaultFont", 10, "bold")).pack(side="left")
+        for label in ("1H", "13C"):
+            ttk.Radiobutton(header, text=label, value=label,
+                            variable=self.nucleus,
+                            command=self._fill_environments).pack(side="right")
+
+        self.env_tree = ttk.Treeview(
+            right, columns=("shift", "n", "kind"), show="headings", height=7)
+        for key, title, width in (("shift", "Shift (ppm)", 110),
+                                  ("n", "n", 40),
+                                  ("kind", "Environment", 170)):
             self.env_tree.heading(key, text=title)
             self.env_tree.column(key, width=width, anchor="center")
         self.env_tree.pack(fill="both", expand=True)
+        self.env_tree.bind("<<TreeviewSelect>>", self._environment_selected)
 
         ttk.Label(right, text="Measured integrals, scaled to this formula",
                   font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(8, 2))
@@ -89,7 +100,7 @@ class StructureWindow(tk.Toplevel):
                                      show="headings", height=6)
         for key, title, width in (("range", "Range (ppm)", 120),
                                   ("h", "Protons", 70),
-                                  ("near", "Matches", 150)):
+                                  ("near", "Matches", 230)):
             self.fit_tree.heading(key, text=title)
             self.fit_tree.column(key, width=width, anchor="center")
         self.fit_tree.pack(fill="both", expand=True)
@@ -164,10 +175,32 @@ class StructureWindow(tk.Toplevel):
         ]
         self.summary.insert("1.0", "\n".join(lines))
 
+        self._fill_environments()
+
+    def _fill_environments(self):
+        """Predicted shifts for whichever nucleus is selected."""
         self.env_tree.delete(*self.env_tree.get_children())
-        for i, env in enumerate(mol.proton_environments()):
-            self.env_tree.insert("", "end", iid=str(i),
-                                 values=(env.count, env.label, len(env.atoms)))
+        if self.molecule is None:
+            return
+        if self.nucleus.get() == "13C":
+            self.predicted = shifts.predict_carbon_environments(self.molecule)
+            unit = "C"
+        else:
+            self.predicted = shifts.predict_proton_environments(self.molecule)
+            unit = "H"
+        for i, (env, estimate) in enumerate(self.predicted):
+            self.env_tree.insert(
+                "", "end", iid=str(i),
+                values=(estimate.text(), "%d%s" % (env.count, unit), env.label))
+        self.check_against_spectrum()
+
+    def _environment_selected(self, _event):
+        selection = self.env_tree.selection()
+        if not selection or not getattr(self, "predicted", None):
+            return
+        env, estimate = self.predicted[int(selection[0])]
+        self.status.set("%s  predicted %s ppm   (%s)"
+                        % (env.label, estimate.text(), estimate.basis))
 
     # -- comparison with the spectrum ---------------------------------------
 
@@ -184,16 +217,21 @@ class StructureWindow(tk.Toplevel):
         return total - skipped, skipped
 
     def check_against_spectrum(self):
-        """Scale the integrals to the formula and match them to environments.
+        """Match the integrals to predicted environments by size *and* shift.
 
-        Proximity to a whole number is a weak test on its own -- with a free
-        scale factor almost any structure can be made to land near integers.
-        What is diagnostic is whether the *pattern* of integrals matches the
-        set of proton environments the structure predicts.
+        Integral size alone is a weak test: the scale factor is free, so with
+        a handful of regions almost any structure can be made to fit.  Adding
+        the predicted chemical shift is what makes a wrong structure fail --
+        a methyl integral sitting at 7.9 ppm cannot be an aliphatic CH3
+        however well the areas happen to divide.
         """
         self.fit_tree.delete(*self.fit_tree.get_children())
         if self.molecule is None:
             return
+        if self.nucleus.get() != "1H":
+            self.status.set("Switch to 1H to compare against a proton spectrum.")
+            return
+
         spec = self.app.active_spectrum()
         if spec is None or not spec.regions:
             self.status.set("Integrate some regions in the main window first, "
@@ -214,62 +252,81 @@ class StructureWindow(tk.Toplevel):
             return
 
         scale = expected / total
-        environments = list(self.molecule.proton_environments())
+        candidates = list(shifts.predict_proton_environments(self.molecule))
         if self.exchangeable.get():
-            environments = [e for e in environments
-                            if e.carrier.symbol not in ("O", "N", "S")]
-        unmatched = list(environments)
+            candidates = [(e, p) for e, p in candidates
+                          if e.carrier.symbol not in ("O", "N", "S")]
+        unmatched = list(candidates)
 
         rows = []
         for region in sorted(usable, key=lambda r: -r.center):
             protons = region.value * scale
+            centre = region.center
             best = None
-            if unmatched:
-                best = min(unmatched, key=lambda e: abs(e.count - protons))
-                tolerance = max(0.3, 0.15 * best.count)
-                if abs(best.count - protons) <= tolerance:
+            best_cost = None
+            for env, estimate in unmatched:
+                size_off = abs(env.count - protons) / max(env.count, 1.0)
+                if estimate.contains(centre):
+                    shift_off = 0.0
+                else:
+                    shift_off = (min(abs(centre - estimate.low),
+                                     abs(centre - estimate.high))
+                                 / max(estimate.window, 0.2))
+                cost = size_off + shift_off
+                if best_cost is None or cost < best_cost:
+                    best, best_cost = (env, estimate), cost
+            # accept only if both the size and the shift are credible
+            if best is not None:
+                env, estimate = best
+                size_ok = abs(env.count - protons) <= max(0.3, 0.15 * env.count)
+                shift_ok = estimate.contains(centre) or \
+                    min(abs(centre - estimate.low),
+                        abs(centre - estimate.high)) <= estimate.window
+                if size_ok and shift_ok:
                     unmatched.remove(best)
                 else:
                     best = None
             rows.append((region, protons, best))
 
-        for i, (region, protons, env) in enumerate(rows):
+        for i, (region, protons, match) in enumerate(rows):
+            if match:
+                env, estimate = match
+                text = "%dH %s @ %s" % (env.count, env.label, estimate.text())
+            else:
+                text = "-"
             self.fit_tree.insert(
                 "", "end", iid=str(i),
                 values=("%.3f - %.3f" % (region.hi, region.lo),
-                        "%.2f" % protons,
-                        "%dH %s" % (env.count, env.label) if env else "-"))
+                        "%.2f" % protons, text))
 
-        matched = sum(1 for _r, _p, env in rows if env)
+        matched = sum(1 for _r, _p, m in rows if m)
         problems = []
         if dropped:
             problems.append("%d region(s) with a non-positive integral ignored"
                             % dropped)
         if matched < len(rows):
-            problems.append("%d region(s) match no predicted environment"
+            problems.append("%d region(s) fit no predicted environment"
                             % (len(rows) - matched))
         if unmatched:
-            problems.append("%d predicted environment(s) unaccounted for (%s)"
+            problems.append("%d environment(s) unaccounted for (%s)"
                             % (len(unmatched),
-                               ", ".join("%dH %s" % (e.count, e.label)
-                                         for e in unmatched)))
-        # An excluded exchangeable proton is a choice the user made, not a
-        # defect in the match, so it is reported separately.
+                               ", ".join("%dH %s near %.1f" % (e.count, e.label,
+                                                               p.value)
+                                         for e, p in unmatched)))
         note = (" %d exchangeable proton(s) were excluded." % skipped
                 if skipped else "")
-
-        head = ("Integrals scaled so the total is %d H for %s. "
+        head = ("Integrals scaled so the total is %d H for %s, then matched on "
+                "both size and predicted shift. "
                 % (expected, self.molecule.formula()))
         if not problems:
-            self.status.set(head + "All %d region(s) match a predicted proton "
-                                   "environment - consistent with this "
-                                   "structure.%s" % (len(rows), note))
+            self.status.set(head + "All %d region(s) match - consistent with "
+                                   "this structure.%s" % (len(rows), note))
         else:
             self.status.set(head + "Not a clean match: " + "; ".join(problems)
                             + "." + note
-                            + "  This is a consistency check, not proof - "
-                              "overlapping signals and missed regions look the "
-                              "same as a wrong structure.")
+                            + "  Shifts are additivity estimates (about "
+                              "+/-0.35 ppm), so treat this as a consistency "
+                              "check rather than proof.")
 
     def export_svg(self):
         if self.molecule is None:

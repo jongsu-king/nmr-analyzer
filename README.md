@@ -39,7 +39,7 @@ Homebrew builds. On Debian/Ubuntu: `sudo apt install python3-tk`.
 python3 run_tests.py
 ```
 
-68 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
+81 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
 Bruker submatrix de-tiling, the `.esp` axis flip) and the numerical claims
 (FFT against a direct DFT, deconvolution areas, aromatic hydrogen counts).
 They generate their own data, so no fixtures are committed.
@@ -134,23 +134,29 @@ homonuclear spectra, automatically excludes the diagonal.
 ### Structure check
 
 `Tools > Structure` takes a SMILES string, draws the structure and reports the
-formula, molecular mass, DBE and ring count, plus the proton environments the
-connectivity predicts.
+formula, molecular mass, DBE and ring count, plus the ¹H and ¹³C environments
+the connectivity predicts and an estimated shift for each.
 
 Press *Check against spectrum* and the integrals of the active spectrum are
-scaled so their total equals the proton count of that formula. Each region then
-reads directly as a number of protons and is matched against an expected
-environment.
+scaled so their total equals the proton count of that formula. Each region is
+then matched to an environment on **both** its size and its predicted shift.
 
-Two caveats, both deliberate:
+Three caveats, all deliberate:
 
-* Proximity to a whole number is **not** the test. With a free scale factor
-  almost any structure can be made to land near integers — an early version of
-  this scored toluene higher than ethanol on a real ethanol spectrum. What is
-  reported instead is whether the *pattern* of integrals matches the set of
-  predicted environments, and which environments are left unaccounted for.
-* Equivalence is topological, so diastereotopic protons are not split apart.
-  That needs stereochemistry; this only knows the connectivity.
+* Integral size alone is **not** the test. With a free scale factor almost any
+  structure can be made to land near integers — an early version of this scored
+  toluene higher than ethanol on a real ethanol spectrum. Requiring the shift
+  to agree as well is what makes a wrong structure fail: a methyl-sized
+  integral sitting at 7.9 ppm cannot be an aliphatic CH₃ however neatly the
+  areas divide.
+* Shifts are additivity estimates, roughly ±0.35 ppm for ¹H and ±5–12 ppm for
+  ¹³C, and worse for anything strained, charged or unusually conjugated. Every
+  estimate is shown as a window rather than a single number. Multiply
+  substituted carbons are the weak spot: chloroform comes out at 8.1 against a
+  real 7.26, because three chlorine α-effects do not simply add.
+* Equivalence is topological, so diastereotopic protons are not split apart
+  and hindered rotation is ignored — DMF's two N-methyls count as one
+  environment. That needs stereochemistry; this only knows the connectivity.
 
 It is a consistency check, not proof: overlapping signals and regions you
 forgot to integrate look the same as a wrong structure, and the window says so.
@@ -181,6 +187,7 @@ All modules live in the `nmranalyzer/` package.
 | `plot2d.py` | the 2D contour window |
 | `smiles.py` | SMILES parser, formula/MW/DBE, symmetry classes |
 | `depict.py` | 2D structure layout and drawing |
+| `shifts.py` | additivity estimates of ¹H and ¹³C shifts |
 | `structwin.py` | the structure window and the integral cross-check |
 
 Plus `tests/` (the suite and its data generators), `run_tests.py`, and
