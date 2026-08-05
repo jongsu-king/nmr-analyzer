@@ -231,13 +231,30 @@ def find_bruker_experiments(store):
     return sorted(set(roots))
 
 
-def read_bruker(path, load_fid=True):
+def available_procnos(store, root):
+    """Processing numbers present under an experiment, lowest first.
+
+    TopSpin writes reprocessed data to ``pdata/2``, ``pdata/3`` and so on;
+    assuming ``pdata/1`` silently hides that work.
+    """
+    found = set()
+    prefix = root + "pdata/"
+    for name in store.names:
+        if not name.startswith(prefix):
+            continue
+        rest = name[len(prefix):].split("/", 1)
+        if len(rest) == 2 and rest[0].isdigit():
+            found.add(int(rest[0]))
+    return sorted(found)
+
+
+def read_bruker(path, load_fid=True, procno=None):
     """Read all experiments found at ``path`` (folder or zip)."""
     store = _Store(path)
     try:
         specs = []
         for root in find_bruker_experiments(store):
-            spec = _read_bruker_one(store, root, path, load_fid)
+            spec = _read_bruker_one(store, root, path, load_fid, procno)
             if spec is not None:
                 specs.append(spec)
         return specs
@@ -245,7 +262,7 @@ def read_bruker(path, load_fid=True):
         store.close()
 
 
-def _read_bruker_one(store, root, path, load_fid):
+def _read_bruker_one(store, root, path, load_fid, procno=None):
     acqus = parse_jcamp_params(store.read(root + "acqus").decode("latin-1"))
 
     sfo1 = float(acqus.get("SFO1", 0.0))
@@ -254,8 +271,15 @@ def _read_bruker_one(store, root, path, load_fid):
         return None
 
     # Prefer the processed data; the acquisition parameters alone do not
-    # define the referenced ppm axis.
-    pdata = root + "pdata/1/"
+    # define the referenced ppm axis.  Fall back to whichever processing
+    # number actually exists rather than assuming 1.
+    candidates = [procno] if procno else available_procnos(store, root) or [1]
+    chosen = candidates[0]
+    for number in candidates:
+        if store.exists("%spdata/%s/1r" % (root, number)):
+            chosen = number
+            break
+    pdata = "%spdata/%s/" % (root, chosen)
     real = imag = None
     sf = sfo1
     offset_ppm = None
@@ -313,6 +337,7 @@ def _read_bruker_one(store, root, path, load_fid):
         "FCOR": procs.get("FCOR", 0.5),
         "Format": "Bruker",
         "Experiment": expno,
+        "Processing no.": chosen,
     }
 
     spec = Spectrum(name, real, sf, sw_hz, offset_ppm, imag=imag, fid=fid,

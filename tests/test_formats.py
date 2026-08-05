@@ -123,3 +123,34 @@ class TestContour(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestProcessingNumbers(unittest.TestCase):
+    """TopSpin writes reprocessed data to pdata/2, pdata/3, ..."""
+
+    def test_falls_back_when_pdata_1_is_absent(self):
+        base = os.path.join(tempfile.mkdtemp(), "1")
+        fixtures.write_bruker_1d(base)
+        os.rename(os.path.join(base, "pdata", "1"),
+                  os.path.join(base, "pdata", "2"))
+        spec = nmrio.load(base)[0]
+        self.assertEqual(spec.npoints, 8192)
+        self.assertEqual(spec.meta["Processing no."], 2)
+
+    def test_prefers_the_lowest_available(self):
+        import shutil
+        base = os.path.join(tempfile.mkdtemp(), "1")
+        fixtures.write_bruker_1d(base)
+        shutil.copytree(os.path.join(base, "pdata", "1"),
+                        os.path.join(base, "pdata", "3"))
+        spec = nmrio.load(base)[0]
+        self.assertEqual(spec.meta["Processing no."], 1)
+
+    def test_2d_falls_back_too(self):
+        base = os.path.join(tempfile.mkdtemp(), "1")
+        fixtures.write_bruker_2d(base)
+        os.rename(os.path.join(base, "pdata", "1"),
+                  os.path.join(base, "pdata", "4"))
+        specs = nmr2d.read_bruker_2d(base)
+        self.assertEqual(len(specs), 1)
+        self.assertEqual(specs[0].meta["Processing no."], 4)

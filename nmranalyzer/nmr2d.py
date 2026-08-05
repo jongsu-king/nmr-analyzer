@@ -181,7 +181,7 @@ def find_2d_experiments(store):
     return sorted(set(roots))
 
 
-def read_bruker_2d(path, procno="1"):
+def read_bruker_2d(path, procno=None):
     """Read every 2D experiment found at ``path`` (folder or zip)."""
     store = nmrio._Store(path)
     try:
@@ -196,10 +196,19 @@ def read_bruker_2d(path, procno="1"):
 
 
 def _read_one(store, root, path, procno):
-    pdata = "%spdata/%s/" % (root, procno)
-    if not (store.exists(pdata + "2rr") and store.exists(pdata + "procs")
-            and store.exists(pdata + "proc2s")):
+    # Use the requested processing number, else the lowest one that actually
+    # holds a 2rr matrix.
+    candidates = [procno] if procno else nmrio.available_procnos(store, root) or [1]
+    chosen = None
+    for number in candidates:
+        trial = "%spdata/%s/" % (root, number)
+        if (store.exists(trial + "2rr") and store.exists(trial + "procs")
+                and store.exists(trial + "proc2s")):
+            chosen = number
+            break
+    if chosen is None:
         return None
+    pdata = "%spdata/%s/" % (root, chosen)
 
     acqus = nmrio.parse_jcamp_params(store.read(root + "acqus").decode("latin-1"))
     acqu2s = nmrio.parse_jcamp_params(store.read(root + "acqu2s").decode("latin-1"))
@@ -241,6 +250,7 @@ def _read_one(store, root, path, procno):
         "Solvent": acqus.get("SOLVENT", ""),
         "Scans": acqus.get("NS", ""),
         "Format": "Bruker 2D",
+        "Processing no.": chosen,
         "Submatrix": "%d x %d" % (tile_rows, tile_cols),
     }
     return Spectrum2D(name, data, f2, f1, meta=meta, source=path)

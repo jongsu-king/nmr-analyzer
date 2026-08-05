@@ -52,7 +52,10 @@ They generate their own data, so no fixtures are committed.
 | ACD/Labs `.esp` | real and imaginary spectrum, referenced ppm axis, acquisition metadata |
 | JCAMP-DX `.jdx` / `.dx` | `XYDATA` and NTUPLES `DATA TABLE` in PAC, SQZ, DIF and DUP forms; multi-block LINK files; FIDs |
 
-A zip containing several experiment numbers loads all of them at once.
+A zip containing several experiment numbers loads all of them at once. If
+`pdata/1` is absent — because the data was reprocessed into `pdata/2` or later
+— the lowest processing number that actually holds data is used, and the Info
+tab records which one.
 
 ## Workflow
 
