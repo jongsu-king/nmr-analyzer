@@ -6,3 +6,7 @@ dist/
 *.egg-info/
 .venv/
 dist/
+dist-app/
+build/
+*.spec.bak
+packaging/Output/

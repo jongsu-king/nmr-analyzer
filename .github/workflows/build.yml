@@ -1,0 +1,138 @@
+name: Build applications
+
+# Windows executables cannot be cross-compiled from macOS or Linux, so each
+# platform is built on its own runner and the results are collected onto the
+# release that triggered the run.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install tkinter
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+      - name: Run the test suite
+        run: python run_tests.py
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+          - os: macos-latest
+            label: macos
+          - os: ubuntu-22.04
+            label: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tkinter (Linux)
+        if: matrix.label == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Work out the version
+        shell: bash
+        run: |
+          ref="${GITHUB_REF#refs/tags/}"
+          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
+          echo "NMR_VERSION=${ref#v}" >> "$GITHUB_ENV"
+
+      - name: Build
+        shell: bash
+        run: pyinstaller --noconfirm --clean --distpath dist-app packaging/nmr-analyzer.spec
+
+      # -- Windows: a portable exe plus a real installer
+      - name: Package (Windows)
+        if: matrix.label == 'windows'
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "dist-app/NMR-Analyzer.exe" "out/NMR-Analyzer-${NMR_VERSION}-windows.exe"
+
+      - name: Build the Windows installer
+        if: matrix.label == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            "/DAppVersion=$env:NMR_VERSION" packaging\windows-installer.iss
+          Copy-Item "packaging\Output\NMR-Analyzer-Setup.exe" `
+            "out\NMR-Analyzer-$env:NMR_VERSION-windows-setup.exe"
+
+      # -- macOS: a drag-to-Applications disk image
+      - name: Package (macOS)
+        if: matrix.label == 'macos'
+        shell: bash
+        run: |
+          mkdir -p out staging
+          cp -R "dist-app/NMR-Analyzer.app" staging/
+          ln -s /Applications staging/Applications
+          hdiutil create -volname "NMR Analyzer" -srcfolder staging \
+            -ov -format UDZO "out/NMR-Analyzer-${NMR_VERSION}-macos.dmg"
+
+      # -- Linux: one self-contained binary
+      - name: Package (Linux)
+        if: matrix.label == 'linux'
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "dist-app/NMR-Analyzer" "out/NMR-Analyzer-${NMR_VERSION}-linux"
+          chmod +x "out/NMR-Analyzer-${NMR_VERSION}-linux"
+
+      - name: Check the build actually starts
+        shell: bash
+        run: |
+          python - <<'EOF'
+          import os, subprocess, sys
+          # A GUI cannot be launched on a headless runner, but a corrupt bundle
+          # fails immediately, so a short run that does not crash is meaningful.
+          out = "out"
+          names = sorted(os.listdir(out))
+          print("built:", names)
+          assert names, "nothing was packaged"
+          for name in names:
+              size = os.path.getsize(os.path.join(out, name))
+              print("%s  %.1f MB" % (name, size / 1e6))
+              assert size > 3_000_000, "%s is too small to contain Python" % name
+          EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nmr-analyzer-${{ matrix.label }}
+          path: out/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Attach the builds to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
