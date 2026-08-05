@@ -30,6 +30,13 @@ pip install .
 nmr-analyzer
 ```
 
+Or install a built wheel from the
+[latest release](https://github.com/jongsu-king/nmr-analyzer/releases/latest):
+
+```bash
+pip install nmranalyzer-1.2.0-py3-none-any.whl
+```
+
 Requires Python 3.8 or newer with tkinter, which ships with the python.org and
 Homebrew builds. On Debian/Ubuntu: `sudo apt install python3-tk`.
 
