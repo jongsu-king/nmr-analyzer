@@ -233,7 +233,10 @@ def save_session(path, spectra, view, options):
             "baseline_on": spec.baseline_on,
             "baseline_method": spec.baseline_method,
             "regions": [{"lo": r.lo, "hi": r.hi, "protons": r.protons,
-                         "label": r.label} for r in spec.regions],
+                         "label": r.label,
+                         "assignment": getattr(r, "assignment", None),
+                         "assignment_label": getattr(r, "assignment_label", "")}
+                        for r in spec.regions],
         })
     payload = {
         "format": SESSION_FORMAT,
@@ -298,6 +301,8 @@ def load_session(path):
         for r in entry.get("regions", []):
             region = analysis.Region(r["lo"], r["hi"], label=r.get("label", ""))
             region.protons = r.get("protons")
+            region.assignment = r.get("assignment")
+            region.assignment_label = r.get("assignment_label", "")
             analysis.integrate_region(spec, region)
             spec.regions.append(region)
         spectra.append(spec)

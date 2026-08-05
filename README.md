@@ -99,7 +99,7 @@ pyinstaller --noconfirm --clean --distpath dist-app packaging/nmr-analyzer.spec
 python3 run_tests.py
 ```
 
-87 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
+98 tests covering the format traps (the `E`/SQZ ambiguity, DIF checkpoints,
 Bruker submatrix de-tiling, the `.esp` axis flip) and the numerical claims
 (FFT against a direct DFT, deconvolution areas, aromatic hydrogen counts).
 They generate their own data — including a raw `ser` with States detection and
@@ -228,6 +228,12 @@ the connectivity predicts and an estimated shift for each.
 
 ![The structure window](docs/03-structure.png)
 
+**Click an atom** in the drawing to select its proton environment, choose an
+integration region in the main window, and press **Link**. The region is then
+labelled with that environment in the integrals table and in the report, its
+proton count is filled in from the structure, and the atom is highlighted.
+Assignments survive undo and are saved with the session.
+
 Press *Check against spectrum* and the integrals of the active spectrum are
 scaled so their total equals the proton count of that formula. Each region is
 then matched to an environment on **both** its size and its predicted shift.
@@ -245,9 +251,13 @@ Three caveats, all deliberate:
   estimate is shown as a window rather than a single number. Multiply
   substituted carbons are the weak spot: chloroform comes out at 8.1 against a
   real 7.26, because three chlorine α-effects do not simply add.
-* Equivalence is topological, so diastereotopic protons are not split apart
-  and hindered rotation is ignored — DMF's two N-methyls count as one
-  environment. That needs stereochemistry; this only knows the connectivity.
+* Diastereotopic protons **are** separated. A CH₂ counts as two signals once
+  the molecule has a stereocentre, the carbon sits in a ring, or it is next to
+  a prochiral centre; and two identical branches split when a stereocentre
+  makes them inequivalent, so valine's isopropyl reads as two three-proton
+  signals rather than one six-proton one. Stereocentres are taken from `@`/`@@`
+  in the SMILES when given, otherwise found from the connectivity.
+  Hindered rotation is still ignored — DMF's two N-methyls count as one.
 
 It is a consistency check, not proof: overlapping signals and regions you
 forgot to integrate look the same as a wrong structure, and the window says so.

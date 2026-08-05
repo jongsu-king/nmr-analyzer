@@ -180,3 +180,34 @@ class TestSolvents(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAssignment(unittest.TestCase):
+    """Regions can be linked to specific atoms of a structure."""
+
+    def setUp(self):
+        self.region = analysis.Region(1.10, 1.30)
+        self.region.value = 3.0
+
+    def test_a_region_starts_unassigned(self):
+        self.assertIsNone(self.region.assignment)
+        self.assertEqual(self.region.assignment_label, "")
+
+    def test_assignment_reaches_the_report(self):
+        spec = fixtures.synthetic_spectrum()
+        region = analysis.Region(1.10, 1.30)
+        analysis.integrate_region(spec, region)
+        region.protons = 3
+        region.assignment = [0]
+        region.assignment_label = "C-H3"
+        text = analysis.format_report(spec, [region])
+        self.assertIn("C-H3", text)
+        self.assertIn("3H", text)
+
+    def test_report_omits_the_label_when_unassigned(self):
+        spec = fixtures.synthetic_spectrum()
+        region = analysis.Region(1.10, 1.30)
+        analysis.integrate_region(spec, region)
+        region.protons = 3
+        text = analysis.format_report(spec, [region])
+        self.assertNotIn("C-H3", text)

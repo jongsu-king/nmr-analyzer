@@ -9,6 +9,7 @@ import os
 import sys
 
 NAME = "NMR-Analyzer"
+ICON_DIR = SPECPATH
 # PyInstaller resolves paths in a spec relative to the spec file, so derive
 # the repository root from SPECPATH rather than from the working directory.
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
@@ -41,7 +42,7 @@ if sys.platform == "darwin":
         exclude_binaries=True,
         name=NAME,
         console=False,
-        icon=None,
+        icon=os.path.join(ICON_DIR, "icon.icns"),
     )
     collect = COLLECT(
         exe, analysis.binaries, analysis.datas,
@@ -50,6 +51,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         collect,
         name="%s.app" % NAME,
+        icon=os.path.join(ICON_DIR, "icon.icns"),
         bundle_identifier="io.github.jongsuking.nmranalyzer",
         info_plist={
             "CFBundleName": "NMR Analyzer",
@@ -75,5 +77,5 @@ else:
         console=False,
         strip=False,
         upx=False,
-        icon=None,
+        icon=os.path.join(ICON_DIR, "icon.ico"),
     )

@@ -27,6 +27,8 @@ OutputBaseFilename=NMR-Analyzer-Setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=icon.ico
+UninstallDisplayIcon={app}\{#AppExe}
 ; Per-user install needs no administrator rights.
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible

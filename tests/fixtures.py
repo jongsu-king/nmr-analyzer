@@ -249,3 +249,22 @@ def write_bruker_ser(root, peaks=((7.2, 3.5), (3.5, 7.2), (2.0, 2.0)),
                   [("SFO1", sf), ("SW_h", sw), ("O1", o1), ("NUC1", "<1H>"),
                    ("TD", td1), ("FnMODE", fnmode)])
     return root, list(peaks)
+
+
+def synthetic_spectrum(sf=500.0, sw=5000.0, points=8192, peaks=((1.20, 1.0, 3.0),
+                                                                (3.65, 0.7, 3.0))):
+    """A small 1D spectrum with Lorentzian lines at known shifts."""
+    from nmranalyzer.nmrio import Spectrum
+    offset = 10.0
+    real = []
+    for i in range(points):
+        ppm = offset - i * (sw / sf) / points
+        hz = ppm * sf
+        value = 0.0
+        for centre, height, width in peaks:
+            u = 2.0 * (hz - centre * sf) / width
+            value += height / (1.0 + u * u)
+        real.append(value * 1e6)
+    spec = Spectrum("synthetic", real, sf, sw, offset)
+    spec.snapshot_base()
+    return spec

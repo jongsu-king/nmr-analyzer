@@ -28,6 +28,8 @@ class StructureWindow(tk.Toplevel):
         self.minsize(760, 500)
 
         self.smiles_text = tk.StringVar(value="")
+        self._screen = {}          # atom index -> (x, y) from the last render
+        self._selected_atom = None
         self.status = tk.StringVar(value="Enter a SMILES string and press Draw.")
         self.exchangeable = tk.BooleanVar(value=False)
         self.nucleus = tk.StringVar(value="1H")
@@ -67,6 +69,7 @@ class StructureWindow(tk.Toplevel):
         self.canvas = tk.Canvas(left, background="white", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda e: self._render())
+        self.canvas.bind("<Button-1>", self._click_atom)
 
         right = ttk.Frame(panes, padding=6)
         panes.add(right, weight=2)
@@ -113,6 +116,15 @@ class StructureWindow(tk.Toplevel):
         ttk.Button(row, text="Check against spectrum",
                    command=self.check_against_spectrum).pack(side="right")
 
+        link = ttk.Frame(right)
+        link.pack(fill="x", pady=(6, 0))
+        ttk.Label(link, text="Click an atom, select a region, then:",
+                  foreground="#666666").pack(side="left")
+        ttk.Button(link, text="Unlink", command=self.unlink_region
+                   ).pack(side="right", padx=(4, 0))
+        ttk.Button(link, text="Link", command=self.link_selection
+                   ).pack(side="right")
+
         ttk.Label(self, textvariable=self.status, padding=(8, 4),
                   wraplength=940, justify="left").pack(side="bottom", fill="x")
 
@@ -145,7 +157,20 @@ class StructureWindow(tk.Toplevel):
 
         coords = depict.layout(self.molecule)
         screen, scale = depict.transform(coords, width, height)
+        self._screen = screen
         font_size = int(max(9, min(16, scale * 0.34)))
+
+        # Mark atoms that already carry an assignment, and the one selected.
+        assigned = self._assigned_atoms()
+        radius = max(12.0, scale * 0.30)
+        for index, (x, y) in screen.items():
+            if index in assigned:
+                canvas.create_oval(x - radius, y - radius, x + radius, y + radius,
+                                   fill="#cde8cd", outline="")
+        if self._selected_atom is not None and self._selected_atom in screen:
+            x, y = screen[self._selected_atom]
+            canvas.create_oval(x - radius, y - radius, x + radius, y + radius,
+                               outline="#cc6600", width=3)
 
         for x1, y1, x2, y2 in depict.bond_segments(self.molecule, screen, scale):
             canvas.create_line(x1, y1, x2, y2, fill="#222222", width=2)
@@ -160,6 +185,43 @@ class StructureWindow(tk.Toplevel):
                                fill="white", outline="")
             canvas.create_text(x, y, text=label, fill="#111111",
                                font=("TkDefaultFont", font_size))
+
+    def _assigned_atoms(self):
+        """Atom indices that some integration region has been linked to."""
+        spec = self.app.active_spectrum()
+        out = set()
+        if spec:
+            for region in spec.regions:
+                for index in getattr(region, "assignment", None) or ():
+                    out.add(index)
+        return out
+
+    def _click_atom(self, event):
+        """Select the environment belonging to the atom under the pointer."""
+        if not self._screen:
+            return
+        best, best_d = None, 1e9
+        for index, (x, y) in self._screen.items():
+            d = (x - event.x) ** 2 + (y - event.y) ** 2
+            if d < best_d:
+                best, best_d = index, d
+        if best is None or best_d > 40 ** 2:
+            return
+        atom = self.molecule.atoms[best]
+        if not atom.n_hydrogens:
+            self.status.set("%s%d carries no hydrogen." % (atom.symbol, best))
+            return
+
+        self._selected_atom = best
+        for row, (env, estimate) in enumerate(getattr(self, "predicted", [])):
+            if any(a.index == best for a in env.atoms):
+                self.env_tree.selection_set(str(row))
+                self.env_tree.see(str(row))
+                self.status.set("%s  predicted %s ppm  -  pick a region in the "
+                                "main window and press Link"
+                                % (env.label, estimate.text()))
+                break
+        self._render()
 
     def _fill_summary(self):
         mol = self.molecule
@@ -327,6 +389,58 @@ class StructureWindow(tk.Toplevel):
                             + "  Shifts are additivity estimates (about "
                               "+/-0.35 ppm), so treat this as a consistency "
                               "check rather than proof.")
+
+    # -- manual assignment --------------------------------------------------
+
+    def _selected_environment(self):
+        selection = self.env_tree.selection()
+        predicted = getattr(self, "predicted", [])
+        if not selection or not predicted:
+            return None
+        index = int(selection[0])
+        return predicted[index][0] if index < len(predicted) else None
+
+    def link_selection(self):
+        """Tie the chosen environment to the region selected in the main window."""
+        env = self._selected_environment()
+        if env is None:
+            messagebox.showinfo("Structure", "Click an atom in the structure, "
+                                             "or pick a row in the environment "
+                                             "list, first.")
+            return
+        spec = self.app.active_spectrum()
+        rows = self.app.int_tree.selection()
+        if spec is None or not rows:
+            messagebox.showinfo("Structure", "Select an integration region in "
+                                             "the main window first.")
+            return
+
+        self.app.push_undo("Assign Atom")
+        region = spec.regions[int(rows[0])]
+        region.assignment = [a.index for a in env.atoms]
+        region.assignment_label = env.label
+        if region.protons is None:
+            region.protons = env.count      # the structure knows how many
+        self.app.refresh_tables()
+        self.app.plot.redraw()
+        self._render()
+        self.status.set("%.3f-%.3f ppm assigned to %s (%dH)"
+                        % (region.hi, region.lo, env.label, env.count))
+
+    def unlink_region(self):
+        spec = self.app.active_spectrum()
+        rows = self.app.int_tree.selection()
+        if spec is None or not rows:
+            return
+        region = spec.regions[int(rows[0])]
+        if not getattr(region, "assignment", None):
+            return
+        self.app.push_undo("Unassign Atom")
+        region.assignment = None
+        region.assignment_label = ""
+        self.app.refresh_tables()
+        self._render()
+        self.status.set("Assignment removed")
 
     def export_svg(self):
         if self.molecule is None:

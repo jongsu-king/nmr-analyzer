@@ -828,7 +828,10 @@ class App(tk.Tk):
     def _capture(self):
         """A cheap snapshot of the analysis state (not the spectral data)."""
         return [(spec,
-                 [(r.lo, r.hi, r.protons, r.label) for r in spec.regions],
+                 [(r.lo, r.hi, r.protons, r.label,
+                   list(getattr(r, "assignment", None) or []) or None,
+                   getattr(r, "assignment_label", ""))
+                  for r in spec.regions],
                  list(spec.peaks),
                  spec.ref_shift)
                 for spec in self.spectra]
@@ -845,9 +848,11 @@ class App(tk.Tk):
             spec.ref_shift = ref_shift
             spec.peaks = list(peaks)
             spec.regions = []
-            for lo, hi, protons, label in regions:
+            for lo, hi, protons, label, assignment, assigned_label in regions:
                 region = analysis.Region(lo, hi, label=label)
                 region.protons = protons
+                region.assignment = assignment
+                region.assignment_label = assigned_label
                 analysis.integrate_region(spec, region)
                 spec.regions.append(region)
         self.refresh_tables()
@@ -1333,13 +1338,14 @@ class App(tk.Tk):
         # Integrals
         frame = ttk.Frame(tabs)
         tabs.add(frame, text="Integrals")
-        cols = ("range", "center", "raw", "norm", "protons", "multiplet", "j")
+        cols = ("range", "center", "raw", "norm", "protons", "multiplet",
+                "j", "assign")
         self.int_tree = ttk.Treeview(frame, columns=cols, show="headings")
         for key, title, width in (
             ("range", "Range (ppm)", 130), ("center", "Centre (ppm)", 95),
             ("raw", "Integral", 110), ("norm", "Relative", 80),
             ("protons", "H", 50), ("multiplet", "Multiplet", 90),
-            ("j", "J (Hz)", 150),
+            ("j", "J (Hz)", 120), ("assign", "Assigned to", 150),
         ):
             self.int_tree.heading(key, text=title)
             self.int_tree.column(key, width=width, anchor="center")
@@ -2135,7 +2141,8 @@ class App(tk.Tk):
                         "%.2f" % value,
                         "%g" % region.protons if region.protons else "",
                         m.pattern if m else "",
-                        ", ".join("%.1f" % j for j in m.couplings) if m else ""))
+                        ", ".join("%.1f" % j for j in m.couplings) if m else "",
+                        getattr(region, "assignment_label", "") or ""))
 
         top = max((p.height for p in spec.peaks), default=1.0) or 1.0
         for i, peak in enumerate(spec.peaks):

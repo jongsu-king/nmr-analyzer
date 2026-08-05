@@ -40,12 +40,13 @@ _BRACKET = re.compile(
 
 class Atom:
     def __init__(self, symbol, aromatic=False, charge=0, isotope=None,
-                 explicit_h=None, index=0):
+                 explicit_h=None, index=0, chirality=""):
         self.symbol = symbol            # capitalised element symbol
         self.aromatic = aromatic
         self.charge = charge
         self.isotope = isotope
         self.explicit_h = explicit_h    # set only for bracket atoms
+        self.chirality = chirality      # "@" / "@@" if the SMILES declared it
         self.index = index
         self.bonds = []                 # list of Bond
         self.n_hydrogens = 0            # filled in by _assign_hydrogens
@@ -183,19 +184,34 @@ class Molecule:
             groups.setdefault(ranks[atom.index], []).append(atom)
         return list(groups.values())
 
-    def proton_environments(self):
+    def proton_environments(self, split_diastereotopic=True):
         """Distinct proton environments, most protons first.
 
-        Returns a list of ``ProtonEnvironment``.  Diastereotopic protons are
-        *not* split apart: that needs stereochemistry, and this only knows the
-        connectivity.
+        The two protons of a diastereotopic CH2 are reported separately, since
+        they genuinely give different signals; pass
+        ``split_diastereotopic=False`` for the purely constitutional count.
         """
+        splittable = ({a.index for a in self.diastereotopic_carbons()}
+                      if split_diastereotopic else set())
+        branches = (self.diastereotopic_branches()
+                    if split_diastereotopic else [])
         out = []
         for group in self.equivalence_classes():
             per_atom = group[0].n_hydrogens
             if not per_atom:
                 continue
-            out.append(ProtonEnvironment(group, per_atom * len(group)))
+            members = frozenset(a.index for a in group)
+            if members in branches:
+                # Two identical branches that a stereocentre pulls apart.
+                for atom, tag in zip(group, ("a", "b")):
+                    out.append(ProtonEnvironment([atom], per_atom,
+                                                 diastereotopic=tag))
+            elif group[0].index in splittable:
+                for tag in ("a", "b"):
+                    out.append(ProtonEnvironment(group, len(group),
+                                                 diastereotopic=tag))
+            else:
+                out.append(ProtonEnvironment(group, per_atom * len(group)))
         out.sort(key=lambda env: (-env.count, env.label))
         return out
 
@@ -213,6 +229,155 @@ class Molecule:
             out.append(CarbonEnvironment(group))
         out.sort(key=lambda env: (-len(env.atoms), env.label))
         return out
+
+
+    # -- topicity -----------------------------------------------------------
+
+    def _neighbour_classes(self):
+        """Map each atom index to its equivalence-class id."""
+        lookup = {}
+        for cid, group in enumerate(self.equivalence_classes()):
+            for atom in group:
+                lookup[atom.index] = cid
+        return lookup
+
+    def stereocentres(self):
+        """Carbons that make the molecule chiral.
+
+        Either declared in the SMILES with ``@``/``@@``, or found by the
+        constitutional test: four substituents that are all different, counting
+        an implicit hydrogen as one of them.
+        """
+        classes = self._neighbour_classes()
+        found = []
+        for atom in self.atoms:
+            if atom.symbol != "C" or atom.aromatic:
+                continue
+            if atom.chirality:
+                found.append(atom)
+                continue
+            if atom.degree + atom.n_hydrogens != 4 or atom.n_hydrogens > 1:
+                continue
+            seen = [classes[n.index] for n in atom.neighbours()]
+            if len(set(seen)) == len(seen) == (4 - atom.n_hydrogens):
+                found.append(atom)
+        return found
+
+    def prochiral_centres(self):
+        """Atoms carrying exactly two constitutionally identical branches.
+
+        Replacing one branch and then the other gives either enantiomers or
+        diastereomers, never the same molecule, which is what makes the two
+        branches -- and the protons of an attached CH2 -- distinguishable.
+        """
+        classes = self._neighbour_classes()
+        out = []
+        for atom in self.atoms:
+            if atom.aromatic:
+                continue
+            neighbours = atom.neighbours()
+            if len(neighbours) + atom.n_hydrogens != 4:
+                continue
+            counts = {}
+            for n in neighbours:
+                counts[classes[n.index]] = counts.get(classes[n.index], 0) + 1
+            paired = [cid for cid, k in counts.items() if k == 2]
+            if len(paired) != 1:
+                continue
+            rest = [str(classes[n.index]) for n in neighbours
+                    if classes[n.index] != paired[0]]
+            rest += ["H"] * atom.n_hydrogens
+            if len(set(rest)) == len(rest):
+                out.append((atom, paired[0]))
+        return out
+
+    def diastereotopic_branches(self):
+        """Pairs of identical branches that a stereocentre makes inequivalent.
+
+        The classic case is an isopropyl group next to a stereocentre: its two
+        methyls give two separate doublets rather than one six-proton one.
+        """
+        if not self.stereocentres():
+            return []
+        classes = self._neighbour_classes()
+        pairs = []
+        for atom, cid in self.prochiral_centres():
+            branch = [n.index for n in atom.neighbours()
+                      if classes[n.index] == cid]
+            if len(branch) == 2:
+                pairs.append(frozenset(branch))
+        return pairs
+
+    def diastereotopic_carbons(self):
+        """CH2 groups whose two protons are inequivalent.
+
+        A CH2 is *prochiral* when its other two substituents differ.  Its
+        protons then become diastereotopic -- genuinely different shifts --
+        once the molecule contains a stereocentre, or when the carbon sits in
+        a ring, where the two faces are not the same.
+
+        This catches the cases that matter in practice.  It does not catch
+        pseudo-asymmetric centres such as glycerol, where the protons are
+        diastereotopic without any stereocentre being present.
+        """
+        classes = self._neighbour_classes()
+        has_stereocentre = bool(self.stereocentres())
+        ring_atoms = self._ring_atom_indices()
+        prochiral = {a.index for a, _cid in self.prochiral_centres()}
+
+        out = []
+        for atom in self.atoms:
+            if atom.symbol != "C" or atom.n_hydrogens != 2:
+                continue
+            heavy = [n for n in atom.neighbours()]
+            if len(heavy) != 2:
+                continue
+            if classes[heavy[0].index] == classes[heavy[1].index]:
+                continue                     # not prochiral itself
+            attached_prochiral = any(n.index in prochiral for n in heavy)
+            if has_stereocentre or atom.index in ring_atoms or attached_prochiral:
+                out.append(atom)
+        return out
+
+    def _ring_atom_indices(self):
+        """Atoms that lie on a cycle, via a bridge-free spanning test."""
+        indices = set()
+        seen = set()
+        order = {}
+        low = {}
+        counter = [0]
+        bridges = set()
+
+        def visit(atom, parent_bond):
+            order[atom.index] = low[atom.index] = counter[0]
+            counter[0] += 1
+            for bond in atom.bonds:
+                if bond is parent_bond:
+                    continue
+                other = bond.other(atom)
+                if other.index not in order:
+                    visit(other, bond)
+                    low[atom.index] = min(low[atom.index], low[other.index])
+                    if low[other.index] > order[atom.index]:
+                        bridges.add(id(bond))
+                else:
+                    low[atom.index] = min(low[atom.index], order[other.index])
+
+        import sys as _sys
+        limit = _sys.getrecursionlimit()
+        _sys.setrecursionlimit(max(limit, len(self.atoms) * 4 + 100))
+        try:
+            for atom in self.atoms:
+                if atom.index not in order:
+                    visit(atom, None)
+        finally:
+            _sys.setrecursionlimit(limit)
+
+        for bond in self.bonds:
+            if id(bond) not in bridges:
+                indices.add(bond.a.index)
+                indices.add(bond.b.index)
+        return indices
 
 
 class CarbonEnvironment:
@@ -245,9 +410,10 @@ class CarbonEnvironment:
 
 
 class ProtonEnvironment:
-    def __init__(self, atoms, count):
+    def __init__(self, atoms, count, diastereotopic=""):
         self.atoms = atoms          # equivalent heavy atoms carrying the H
         self.count = count          # total protons in this environment
+        self.diastereotopic = diastereotopic   # "a"/"b" for a split CH2
 
     @property
     def carrier(self):
@@ -259,6 +425,9 @@ class ProtonEnvironment:
         kind = atom.symbol
         if atom.aromatic:
             kind = "aromatic " + kind
+        if self.diastereotopic:
+            return "%s-H%d (H%s, diastereotopic)" % (kind, atom.n_hydrogens,
+                                                     self.diastereotopic)
         return "%s-H%s" % (kind, "" if atom.n_hydrogens == 1 else
                            str(atom.n_hydrogens))
 
@@ -388,7 +557,7 @@ def _read_atom(text, i, index):
         match = _BRACKET.match(text[i:end + 1])
         if not match:
             raise SmilesError("cannot read bracket atom %r" % text[i:end + 1])
-        isotope, symbol, _chirality, hydrogens, charge = match.groups()
+        isotope, symbol, chirality, hydrogens, charge = match.groups()
 
         aromatic = symbol[0].islower()
         element = symbol.capitalize()
@@ -406,7 +575,8 @@ def _read_atom(text, i, index):
 
         atom = Atom(element, aromatic=aromatic, charge=total_charge,
                     isotope=int(isotope) if isotope else None,
-                    explicit_h=explicit_h, index=index)
+                    explicit_h=explicit_h, index=index,
+                    chirality=chirality or "")
         return atom, end + 1 - i
 
     for symbol in ORGANIC_SUBSET:

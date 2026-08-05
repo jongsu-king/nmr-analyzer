@@ -40,6 +40,8 @@ class Region:
         self.peaks = []
         self.multiplet = None
         self.fit = None         # fitting.FitResult once deconvoluted
+        self.assignment = None      # atom indices this region was linked to
+        self.assignment_label = ""  # e.g. "aromatic C-H"
 
     @property
     def center(self):
@@ -389,6 +391,9 @@ def format_report(spec, regions):
             bits.append("m")
         if region.protons:
             bits.append("%gH" % region.protons)
+        assigned = getattr(region, "assignment_label", "")
+        if assigned:
+            bits.append(assigned)
         elif any_assigned:
             bits.append("%.2fH" % value)
         else:

@@ -118,3 +118,65 @@ class TestCarbonEnvironments(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTopicity(unittest.TestCase):
+    """Diastereotopic protons give separate signals; equivalent ones do not."""
+
+    def counts(self, text, split=True):
+        mol = smiles.parse(text)
+        return sorted((e.count for e in mol.proton_environments(split)),
+                      reverse=True)
+
+    def test_plain_molecules_are_untouched(self):
+        """Nothing splits without a stereocentre, a ring or a prochiral centre."""
+        for text, expected in (("CCO", [3, 2, 1]),
+                               ("CCOC(C)=O", [3, 3, 2]),
+                               ("Cc1ccccc1", [3, 2, 2, 1]),
+                               ("CC(O)C", [6, 1, 1])):
+            with self.subTest(smiles=text):
+                self.assertEqual(self.counts(text), expected)
+
+    def test_ch2_next_to_a_stereocentre_splits(self):
+        """Butan-2-ol: the C3 protons are diastereotopic."""
+        self.assertEqual(self.counts("CC(O)CC", split=False), [3, 3, 2, 1, 1])
+        self.assertEqual(self.counts("CC(O)CC"), [3, 3, 1, 1, 1, 1])
+
+    def test_declared_stereochemistry_is_honoured(self):
+        mol = smiles.parse("C[C@H](O)CC")
+        self.assertTrue(mol.stereocentres())
+        self.assertEqual(self.counts("C[C@H](O)CC"), [3, 3, 1, 1, 1, 1])
+
+    def test_isopropyl_methyls_split_next_to_a_stereocentre(self):
+        """Valine's two methyls give two doublets, not one six-proton signal."""
+        self.assertEqual(self.counts("CC(C)C(N)C(=O)O", split=False),
+                         [6, 2, 1, 1, 1])
+        self.assertEqual(self.counts("CC(C)C(N)C(=O)O"), [3, 3, 2, 1, 1, 1])
+
+    def test_ring_ch2_protons_split(self):
+        """The two faces of a substituted ring are not the same."""
+        self.assertEqual(self.counts("OC1CCCCC1", split=False), [4, 4, 2, 1, 1])
+        self.assertEqual(self.counts("OC1CCCCC1"), [2, 2, 2, 2, 2, 1, 1])
+
+    def test_prochiral_centre_without_a_stereocentre(self):
+        """Glycerol has no stereocentre but C2 is prochiral."""
+        mol = smiles.parse("OCC(O)CO")
+        self.assertFalse(mol.stereocentres())
+        self.assertTrue(mol.prochiral_centres())
+        self.assertEqual(self.counts("OCC(O)CO"), [2, 2, 2, 1, 1])
+
+    def test_splitting_conserves_the_proton_count(self):
+        for text in ("CC(O)CC", "CC(C)C(N)C(=O)O", "OC1CCCCC1",
+                     "CC(C)CC(N)C(=O)O", "OCC(O)CO"):
+            with self.subTest(smiles=text):
+                mol = smiles.parse(text)
+                total = sum(e.count for e in mol.proton_environments())
+                self.assertEqual(total, mol.formula_counts()["H"])
+
+    def test_labels_name_the_right_group(self):
+        """A split methyl must not be labelled as a CH2."""
+        mol = smiles.parse("CC(C)C(N)C(=O)O")
+        split = [e for e in mol.proton_environments() if e.diastereotopic]
+        self.assertTrue(split)
+        for env in split:
+            self.assertIn("H3", env.label)
