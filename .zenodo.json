@@ -1,0 +1,21 @@
+{
+  "title": "NMR Analyzer: a dependency-free desktop application for 1D and 2D NMR spectra",
+  "description": "A desktop application for inspecting and quantifying 1D and 2D NMR spectra. Reads Bruker experiment folders, ACD/Labs .esp exports and JCAMP-DX files; transforms raw free induction decays; and provides phase and baseline correction, peak picking, integration, multiplet classification, pseudo-Voigt deconvolution, contour display of two-dimensional experiments, and a consistency check of measured integrals against a structure supplied as SMILES. Implemented against the Python standard library alone.",
+  "license": "MIT",
+  "upload_type": "software",
+  "creators": [
+    {
+      "name": "Lim, Jongsu",
+      "orcid": "0009-0000-3395-1484"
+    }
+  ],
+  "keywords": [
+    "NMR",
+    "spectroscopy",
+    "analytical chemistry",
+    "JCAMP-DX",
+    "Bruker",
+    "Python"
+  ],
+  "access_right": "open"
+}
