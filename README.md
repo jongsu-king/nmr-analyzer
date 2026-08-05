@@ -68,7 +68,7 @@ To put `nmr-analyzer` on your PATH, or to install the wheel from the release:
 
 ```bash
 pip install .                                   # from a clone
-pip install nmranalyzer-1.3.0-py3-none-any.whl  # from the release
+pip install nmranalyzer-1.4.0-py3-none-any.whl  # from the release
 nmr-analyzer
 ```
 
