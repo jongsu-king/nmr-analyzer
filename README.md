@@ -16,9 +16,43 @@ picked, integrals assigned and one multiplet deconvoluted. The integral table
 gives the multiplicity and *J* for each region. The faint line across the plot
 is zero, which makes a phase or baseline error obvious at a glance.
 
-## Install and run
+## Install
 
-Nothing to install: clone the repository and run it.
+Pick the file for your machine from the
+**[latest release](https://github.com/jongsu-king/nmr-analyzer/releases/latest)**.
+None of these need Python installed.
+
+| Your machine | Download | What to do |
+|---|---|---|
+| **Windows** | `NMR-Analyzer-<version>-windows-setup.exe` | Run it. Installs to Program Files with a Start-menu entry. |
+| **Windows** (no install) | `NMR-Analyzer-<version>-windows.exe` | Just run it. Single file, nothing is written to the system. |
+| **macOS** | `NMR-Analyzer-<version>-macos.dmg` | Open it and drag the app to Applications. |
+| **Linux** | `NMR-Analyzer-<version>-linux` | `chmod +x` it and run it. |
+
+### Windows
+
+Windows will warn about an unknown publisher, because the build is not code
+signed — a certificate costs a few hundred dollars a year and this is a lab
+tool. On the blue *"Windows protected your PC"* screen, click **More info**,
+then **Run anyway**.
+
+### macOS
+
+macOS blocks unsigned apps on first launch for the same reason. **Right-click
+the app and choose Open** (double-clicking only offers *Cancel*, with no way
+through), then confirm in the dialog. You only have to do this once.
+
+If you see *"NMR Analyzer is damaged"* instead, macOS quarantined the download;
+clear the flag with:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NMR-Analyzer.app
+```
+
+### From source
+
+If you already have Python 3.8+ with tkinter, running from source needs no
+build step at all:
 
 ```bash
 git clone https://github.com/jongsu-king/nmr-analyzer.git
@@ -30,22 +64,30 @@ python3 -m nmranalyzer spectrum.esp data.zip    # or open files directly
 On macOS you can double-click **`run.command`** in Finder; on Windows,
 **`run.bat`**; on Linux, `./run.sh`.
 
-To put `nmr-analyzer` on your PATH instead:
+To put `nmr-analyzer` on your PATH, or to install the wheel from the release:
 
 ```bash
-pip install .
+pip install .                                   # from a clone
+pip install nmranalyzer-1.3.0-py3-none-any.whl  # from the release
 nmr-analyzer
 ```
 
-Or install a built wheel from the
-[latest release](https://github.com/jongsu-king/nmr-analyzer/releases/latest):
+tkinter ships with the python.org and Homebrew builds. On Debian/Ubuntu:
+`sudo apt install python3-tk`.
+
+## Building the applications yourself
+
+Every push of a `v*` tag builds all three platforms on GitHub Actions and
+attaches the results to the release. Windows executables cannot be
+cross-compiled from macOS or Linux, which is why each one is built on its own
+runner rather than locally.
+
+To build for the machine you are sitting at:
 
 ```bash
-pip install nmranalyzer-1.3.0-py3-none-any.whl
+pip install pyinstaller
+pyinstaller --noconfirm --clean --distpath dist-app packaging/nmr-analyzer.spec
 ```
-
-Requires Python 3.8 or newer with tkinter, which ships with the python.org and
-Homebrew builds. On Debian/Ubuntu: `sudo apt install python3-tk`.
 
 ## Tests
 
