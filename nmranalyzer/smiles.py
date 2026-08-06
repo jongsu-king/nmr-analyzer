@@ -84,6 +84,46 @@ class Molecule:
         self.bonds = bonds
         self.smiles = smiles
 
+    # -- normalisation ------------------------------------------------------
+
+    def collapse_explicit_hydrogens(self):
+        """Fold explicit ``[H]`` atoms into their neighbour's hydrogen count.
+
+        Databases routinely write every hydrogen as its own atom.  Left that
+        way, each heavy atom reports no hydrogens and the whole environment
+        analysis returns nothing, so the two spellings have to be made
+        equivalent before anything else happens.
+
+        Deuterium and tritium are left in place: they are not protons and must
+        not be counted as though they were.
+        """
+        removable = []
+        for atom in self.atoms:
+            if atom.symbol != "H" or atom.charge:
+                continue
+            if atom.isotope not in (None, 1):
+                continue                       # [2H] / [3H] are not protons
+            if len(atom.bonds) != 1:
+                continue                       # H2, or a bridging hydride
+            partner = atom.bonds[0].other(atom)
+            if partner.symbol == "H":
+                continue
+            removable.append((atom, atom.bonds[0], partner))
+
+        if not removable:
+            return self
+
+        for atom, bond, partner in removable:
+            partner.n_hydrogens += 1
+            partner.bonds.remove(bond)
+        doomed_atoms = {id(a) for a, _b, _p in removable}
+        doomed_bonds = {id(b) for _a, b, _p in removable}
+        self.atoms = [a for a in self.atoms if id(a) not in doomed_atoms]
+        self.bonds = [b for b in self.bonds if id(b) not in doomed_bonds]
+        for position, atom in enumerate(self.atoms):
+            atom.index = position
+        return self
+
     # -- composition --------------------------------------------------------
 
     def formula_counts(self):
@@ -539,6 +579,8 @@ def parse(text):
 
     molecule = Molecule(atoms, bonds, smiles=text)
     _assign_hydrogens(molecule)
+    # "C([H])([H])[H]" and "C" must behave identically from here on.
+    molecule.collapse_explicit_hydrogens()
     return molecule
 
 

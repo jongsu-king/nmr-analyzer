@@ -180,3 +180,43 @@ class TestTopicity(unittest.TestCase):
         self.assertTrue(split)
         for env in split:
             self.assertIn("H3", env.label)
+
+
+class TestExplicitHydrogens(unittest.TestCase):
+    """Database SMILES write every hydrogen out; both spellings must agree."""
+
+    PAIRS = [
+        ("CCO", "C([H])([H])C([H])([H])O[H]"),
+        ("Cc1ccccc1", "C([H])([H])([H])c1c([H])c([H])c([H])c([H])c1[H]"),
+        ("CC(=O)O", "C([H])([H])([H])C(=O)O[H]"),
+    ]
+
+    def test_formula_is_the_same_either_way(self):
+        for implicit, explicit in self.PAIRS:
+            with self.subTest(smiles=implicit):
+                self.assertEqual(smiles.parse(implicit).formula(),
+                                 smiles.parse(explicit).formula())
+
+    def test_environments_are_the_same_either_way(self):
+        for implicit, explicit in self.PAIRS:
+            with self.subTest(smiles=implicit):
+                a = [(e.count, e.label)
+                     for e in smiles.parse(implicit).proton_environments()]
+                b = [(e.count, e.label)
+                     for e in smiles.parse(explicit).proton_environments()]
+                self.assertEqual(a, b)
+
+    def test_explicit_hydrogens_leave_no_stray_atoms(self):
+        mol = smiles.parse("C([H])([H])([H])O[H]")
+        self.assertFalse([a for a in mol.atoms if a.symbol == "H"],
+                         "explicit H should have been folded into its neighbour")
+        self.assertEqual([a.index for a in mol.atoms],
+                         list(range(len(mol.atoms))), "indices must stay dense")
+
+    def test_deuterium_is_not_a_proton(self):
+        """CD3OH shows one proton signal, not four."""
+        mol = smiles.parse("C([2H])([2H])([2H])O[H]")
+        environments = mol.proton_environments()
+        self.assertEqual(len(environments), 1)
+        self.assertEqual(environments[0].count, 1)
+        self.assertIn("O-H", environments[0].label)
