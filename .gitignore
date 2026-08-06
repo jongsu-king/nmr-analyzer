@@ -10,3 +10,10 @@ dist-app/
 build/
 *.spec.bak
 packaging/Output/
+
+# Journal submission drafts, kept locally until they are ready
+paper.md
+paper.bib
+paper-jce.md
+.zenodo.json
+CITATION.cff
