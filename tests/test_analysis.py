@@ -1,6 +1,7 @@
 """Peak picking, integration, multiplets, composition and lineshape fitting."""
 
 import math
+import os
 import unittest
 
 import fixtures
@@ -211,3 +212,89 @@ class TestAssignment(unittest.TestCase):
         region.protons = 3
         text = analysis.format_report(spec, [region])
         self.assertNotIn("C-H3", text)
+
+
+class TestTeachingDatasets(unittest.TestCase):
+    """The teaching spectra must give the answers the worksheet expects.
+
+    A worksheet with a wrong answer key is worse than none, so the datasets
+    are measured here rather than trusted.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        import runpy
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cls.folder = os.path.join(root, "education", "datasets")
+        if not os.path.isdir(cls.folder):
+            runpy.run_path(os.path.join(root, "education", "make_datasets.py"),
+                           run_name="__main__")
+
+    def load(self, name):
+        from nmranalyzer import nmrio
+        return nmrio.load(os.path.join(self.folder, name))[0]
+
+    def ratios(self, spec, windows, reference=0):
+        regions = []
+        for lo, hi in windows:
+            region = analysis.Region(lo, hi)
+            analysis.integrate_region(spec, region)
+            regions.append(region)
+        base = regions[reference].value
+        return [r.value / base for r in regions]
+
+    def test_ethyl_acetate_is_two_three_three(self):
+        got = self.ratios(self.load("01-ethyl-acetate.jdx"),
+                          [(4.00, 4.25), (1.95, 2.15), (1.15, 1.40)])
+        for value, expected in zip(got, (1.0, 1.5, 1.5)):
+            self.assertAlmostEqual(value, expected, delta=0.06)
+
+    def test_ethyl_acetate_couplings_match_the_answer_key(self):
+        spec = self.load("01-ethyl-acetate.jdx")
+        region = analysis.Region(4.00, 4.25)
+        analysis.integrate_region(spec, region)
+        self.assertEqual(region.multiplet.pattern, "q")
+        self.assertAlmostEqual(region.multiplet.couplings[0], 7.1, delta=0.4)
+
+    def test_the_misphased_spectrum_really_is_wrong(self):
+        """Part 2 only teaches anything if the uncorrected integral is off."""
+        _ch2, ch3 = self.ratios(self.load("02-ethanol-misphased.jdx"),
+                                [(3.50, 3.90), (1.00, 1.40)])
+        self.assertLess(ch3, 1.42,
+                        "not mis-phased enough for the exercise to bite")
+
+    def test_phase_correction_recovers_the_true_ratio(self):
+        spec = self.load("02-ethanol-misphased.jdx")
+        spec.p0, spec.p1 = 40.0, 0.0
+        spec.reprocess()
+        _ch2, ch3 = self.ratios(spec, [(3.50, 3.90), (1.00, 1.40)])
+        self.assertAlmostEqual(ch3, 1.5, delta=0.08)
+
+    def test_conversion_reads_sixty_percent(self):
+        spec = self.load("03-conversion.jdx")
+        start = analysis.Region(2.02, 2.18)
+        product = analysis.Region(2.27, 2.43)
+        for region in (start, product):
+            analysis.integrate_region(spec, region)
+        _rows, conversion = analysis.composition([
+            analysis.Component("start", start, 3),
+            analysis.Component("product", product, 3)])
+        self.assertAlmostEqual(conversion, 60.0, delta=2.0)
+
+    def test_fitting_separates_the_overlapping_pair(self):
+        spec = self.load("04-overlapping.jdx")
+        result = fitting.fit_region(spec, 7.30, 7.50)
+        strongest = sorted((p.area for p in result.peaks), reverse=True)[:2]
+        self.assertAlmostEqual(strongest[0] / strongest[1], 2.0, delta=0.15)
+
+    def test_the_unknown_is_two_two_three_three(self):
+        got = self.ratios(self.load("05-unknown.jdx"),
+                          [(7.78, 7.94), (7.17, 7.33), (2.50, 2.66), (2.33, 2.49)])
+        for value, expected in zip(got, (1.0, 1.0, 1.5, 1.5)):
+            self.assertAlmostEqual(value, expected, delta=0.06)
+
+    def test_the_unknown_matches_its_answer_key(self):
+        from nmranalyzer import smiles
+        mol = smiles.parse("CC(=O)c1ccc(C)cc1")
+        self.assertEqual(mol.formula(), "C9H10O")
+        self.assertEqual(mol.dbe(), 5)

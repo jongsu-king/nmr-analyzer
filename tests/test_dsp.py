@@ -113,3 +113,46 @@ class TestSolver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPhaseRegularisation(unittest.TestCase):
+    """A first-order term should only appear when the data calls for one."""
+
+    def _lines(self, rotation_deg=0.0, n=4096):
+        import cmath
+        out = []
+        for i in range(n):
+            value = 0j
+            for centre, height, width in ((1200, 1.0, 8), (2000, 0.6, 8),
+                                          (2600, 0.9, 8)):
+                u = (i - centre) / width
+                value += height * (1 / (1 + u * u) + 1j * u / (1 + u * u))
+            out.append(value * cmath.exp(-1j * math.radians(rotation_deg)))
+        return out
+
+    def test_pure_zero_order_rotation_gives_no_first_order_term(self):
+        p0, p1 = dsp.autophase(self._lines(40.0))
+        self.assertAlmostEqual(abs(p0), 40.0, delta=3.0)
+        self.assertAlmostEqual(p1, 0.0, delta=2.0,
+                               msg="a pure PH0 error should not need PH1")
+
+    def test_an_already_phased_spectrum_is_left_nearly_alone(self):
+        p0, p1 = dsp.autophase(self._lines(0.0))
+        self.assertAlmostEqual(p0, 0.0, delta=5.0)
+        self.assertAlmostEqual(p1, 0.0, delta=5.0)
+
+    def test_the_penalty_does_not_block_a_needed_correction(self):
+        """A real first-order error must still be found."""
+        import cmath
+        n = 4096
+        spectrum = []
+        for i in range(n):
+            value = 0j
+            for centre, height, width in ((600, 1.0, 8), (3400, 1.0, 8)):
+                u = (i - centre) / width
+                value += height * (1 / (1 + u * u) + 1j * u / (1 + u * u))
+            # phase ramping across the spectrum: a genuine first-order error
+            spectrum.append(value * cmath.exp(-1j * math.radians(120.0 * i / n)))
+        _p0, p1 = dsp.autophase(spectrum)
+        self.assertGreater(abs(p1), 40.0,
+                           "a real first-order error was suppressed")

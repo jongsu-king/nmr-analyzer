@@ -176,6 +176,17 @@ def phase(spec: list, p0: float, p1: float, pivot: float = 0.0) -> list:
     return out
 
 
+# A first-order correction is only justified when the data demands it, so a
+# small penalty is charged for using one.  Without it, a spectrum whose peaks
+# sit in a narrow window leaves p1 almost unconstrained: on a synthetic
+# spectrum rotated by a known 40 degrees of pure zero-order phase, the
+# unpenalised search returns a first-order term of 22 degrees, while with this
+# penalty it returns zero and recovers the rotation exactly.  The value is
+# small enough that a spectrum genuinely needing a large first-order
+# correction still gets one.
+P1_PENALTY = 5.0e-4
+
+
 def _phase_penalty(spec: list, p0: float, p1: float, pivot: float,
                    step: int) -> float:
     """Negative-area objective used by :func:`autophase`.
@@ -199,7 +210,7 @@ def _phase_penalty(spec: list, p0: float, p1: float, pivot: float,
             neg -= re
     if total == 0.0:
         return 0.0
-    return neg / total
+    return neg / total + P1_PENALTY * abs(p1)
 
 
 def autophase(spec: list, pivot: float = 0.0, fit_p1: bool = True) -> tuple:
