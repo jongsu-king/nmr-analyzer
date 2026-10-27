@@ -1,5 +1,7 @@
 # NMR Analyzer
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23682459.svg)](https://doi.org/10.5281/zenodo.23682459)
+
 A desktop viewer and analyser for **1D and 2D NMR spectra**. Reads Bruker
 experiment folders, zipped Bruker data, ACD/Labs `.esp` exports and JCAMP-DX
 files; processes raw FIDs; and does peak picking, multiplet analysis,
@@ -426,6 +428,17 @@ axis is `right = tag0x04/SF − SW/(2·SF)`, ascending.
 Cross-check: three unrelated `.esp` files from this instrument put the TFA-d
 line at 11.4998, 11.5004 and 11.5001 ppm under this reading, i.e. ACD had
 referenced all three to the solvent at exactly 11.50.
+
+## Citing
+
+Please cite the archived release:
+
+> Lim, J. (2026). *NMR Analyzer: a noise-adaptive, dependency-free desktop application for
+> reproducible 1D and 2D NMR analysis* (Version 1.5.1) [Computer software]. Zenodo.
+> https://doi.org/10.5281/zenodo.23682460
+
+The concept DOI [10.5281/zenodo.23682459](https://doi.org/10.5281/zenodo.23682459) always
+resolves to the latest release. Full metadata is in `CITATION.cff`.
 
 ## Author
 
