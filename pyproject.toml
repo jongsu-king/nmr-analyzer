@@ -9,7 +9,14 @@ description = "A desktop viewer and analyser for 1D and 2D NMR spectra, standard
 readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-authors = [{ name = "Jongsu Lim", email = "imjongsu1102@gmail.com" }]
+authors = [
+    { name = "Jongsu Lim", email = "imjongsu1102@gmail.com" },
+    { name = "Kyungsik Kim" },
+    { name = "Jaeho Shin" },
+    { name = "Hyunsung Ji" },
+    { name = "Seungeon Lee" },
+    { name = "Jinho Lee", email = "jlee@inu.ac.kr" },
+]
 keywords = ["NMR", "spectroscopy", "chemistry", "Bruker", "JCAMP-DX", "SMILES"]
 classifiers = [
     "Development Status :: 4 - Beta",

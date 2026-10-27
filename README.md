@@ -433,16 +433,17 @@ referenced all three to the solvent at exactly 11.50.
 
 Please cite the archived release:
 
-> Lim, J. (2026). *NMR Analyzer: a noise-adaptive, dependency-free desktop application for
-> reproducible 1D and 2D NMR analysis* (Version 1.5.1) [Computer software]. Zenodo.
+> Lim, J., Kim, K., Shin, J., Ji, H., Lee, S., & Lee, J. (2026). *NMR Analyzer: a
+> noise-adaptive, dependency-free desktop application for reproducible 1D and 2D NMR
+> analysis* (Version 1.5.1) [Computer software]. Zenodo.
 > https://doi.org/10.5281/zenodo.23682460
 
 The concept DOI [10.5281/zenodo.23682459](https://doi.org/10.5281/zenodo.23682459) always
 resolves to the latest release. Full metadata is in `CITATION.cff`.
 
-## Author
+## Authors
 
-Jongsu Lim
+Jongsu Lim, Kyungsik Kim, Jaeho Shin, Hyunsung Ji, Seungeon Lee and Jinho Lee
 
 ## Licence
 
