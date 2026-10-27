@@ -443,7 +443,7 @@ resolves to the latest release. Full metadata is in `CITATION.cff`.
 
 ## Authors
 
-Jongsu Lim, Kyungsik Kim, Jaeho Shin, Hyunsung Ji, Seungeon Lee and Jinho Lee
+Jongsu Lim, Kyungsik Kim, Jaeho Shin, Hyunsung Ji, Seung-eon Lee and Jinho Lee
 
 ## Licence
 

@@ -14,7 +14,7 @@ authors = [
     { name = "Kyungsik Kim" },
     { name = "Jaeho Shin" },
     { name = "Hyunsung Ji" },
-    { name = "Seungeon Lee" },
+    { name = "Seung-eon Lee" },
     { name = "Jinho Lee", email = "jlee@inu.ac.kr" },
 ]
 keywords = ["NMR", "spectroscopy", "chemistry", "Bruker", "JCAMP-DX", "SMILES"]
