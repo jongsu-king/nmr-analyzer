@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: "NMR Analyzer"
+message: "If you use this software, please cite it using the metadata below."
+type: software
+authors:
+  - family-names: Lim
+    given-names: Jongsu
+    orcid: "https://orcid.org/0009-0000-3395-1484"
+    affiliation: "Department of Physics, Incheon National University"
+repository-code: "https://github.com/jongsu-king/nmr-analyzer"
+url: "https://github.com/jongsu-king/nmr-analyzer"
+abstract: >-
+  A standard-library-only desktop application for reproducible inspection and
+  quantification of one- and two-dimensional NMR spectra. It reads Bruker,
+  ACD/Labs ESP, and JCAMP-DX data and provides processing, peak picking,
+  integration, line-shape fitting, contour display, and a researcher-supervised
+  structure-consistency check.
+keywords:
+  - NMR
+  - spectroscopy
+  - analytical chemistry
+  - JCAMP-DX
+  - Bruker
+  - Python
+license: MIT
+version: 1.5.1
+date-released: 2026-10-27

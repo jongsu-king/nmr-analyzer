@@ -1,0 +1,23 @@
+{
+  "title": "NMR Analyzer: a noise-adaptive, dependency-free desktop application for reproducible 1D and 2D NMR analysis",
+  "version": "1.5.1",
+  "description": "A standard-library-only desktop application for reproducible inspection and quantification of one- and two-dimensional NMR spectra. It reads Bruker, ACD/Labs ESP, and JCAMP-DX data and provides processing, peak picking, integration, line-shape fitting, contour display, and a researcher-supervised structure-consistency check.",
+  "license": "mit",
+  "upload_type": "software",
+  "creators": [
+    {
+      "name": "Lim, Jongsu",
+      "orcid": "0009-0000-3395-1484",
+      "affiliation": "Department of Physics, Incheon National University"
+    }
+  ],
+  "keywords": [
+    "NMR",
+    "spectroscopy",
+    "analytical chemistry",
+    "JCAMP-DX",
+    "Bruker",
+    "Python"
+  ],
+  "access_right": "open"
+}
