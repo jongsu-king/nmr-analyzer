@@ -102,6 +102,16 @@ jobs:
           HOME=/tmp/home /tmp/t/NMR-Analyzer/install.sh
           /tmp/home/.local/bin/nmr-analyzer --selftest --out out/selftest-linux-tar.json
 
+      - name: Verify self-test reports
+        run: |
+          python - <<'PY'
+          import glob, json, sys
+          files = sorted(glob.glob("out/selftest-*.json"))
+          bad = [f for f in files if not json.load(open(f, encoding="utf-8")).get("ok")]
+          print("reports:", files)
+          if not files or bad:
+              sys.exit(f"failed self-tests: {bad or 'no reports'}")
+          PY
       - uses: actions/upload-artifact@v7
         with:
           name: nmr-analyzer-${{ matrix.os }}
