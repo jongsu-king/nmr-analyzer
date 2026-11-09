@@ -1,8 +1,10 @@
 name: Build applications
 
-# Windows executables cannot be cross-compiled from macOS or Linux, so each
-# platform is built on its own runner and the results are collected onto the
-# release that triggered the run.
+# Each platform is built on its own runner (Windows executables cannot be
+# cross-compiled), checked with --selftest, test-installed, and - for a v* tag -
+# attached to the GitHub Release together with SHA256SUMS.txt, which the
+# in-app updater uses to verify downloads. "Run workflow" builds without
+# publishing.
 
 on:
   push:
@@ -12,12 +14,15 @@ on:
 permissions:
   contents: write
 
+env:
+  NMR_ANALYZER_NO_UPDATE: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install tkinter
@@ -31,123 +36,124 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            label: windows
-          - os: macos-latest
-            label: macos
-          - os: ubuntu-22.04
-            label: linux
+          - { os: windows-latest, label: windows }
+          - { os: macos-latest, label: macos }      # Apple silicon
+          - { os: macos-15-intel, label: macos }    # Intel
+          - { os: ubuntu-22.04, label: linux }      # glibc 2.35
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-
-      - name: Install tkinter (Linux)
-        if: matrix.label == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-tk
-
       - name: Install PyInstaller
         run: python -m pip install --upgrade pip pyinstaller
-
       - name: Work out the version
-        shell: bash
         run: |
-          ref="${GITHUB_REF#refs/tags/}"
-          if [ "$ref" = "$GITHUB_REF" ]; then ref="0.0.0-dev"; fi
-          echo "NMR_VERSION=${ref#v}" >> "$GITHUB_ENV"
-
+          V=$(python -c "import nmranalyzer; print(nmranalyzer.__version__)")
+          echo "NMR_VERSION=$V" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$V" ]]; then
+            echo "tag $GITHUB_REF_NAME does not match __version__ $V"; exit 1; fi
       - name: Build
-        shell: bash
-        run: pyinstaller --noconfirm --clean --distpath dist-app packaging/nmr-analyzer.spec
+        run: pyinstaller --noconfirm --clean --distpath dist-app --workpath build packaging/nmr-analyzer.spec
 
-      # -- Windows: a portable exe plus a real installer
-      - name: Package (Windows)
-        if: matrix.label == 'windows'
-        shell: bash
+      # -- macOS: drag-to-Applications disk image, one per processor
+      - name: Package (macOS)
+        if: matrix.label == 'macos'
         run: |
           mkdir -p out
-          cp "dist-app/NMR-Analyzer.exe" "out/NMR-Analyzer-${NMR_VERSION}-windows.exe"
+          dist-app/NMR-Analyzer.app/Contents/MacOS/NMR-Analyzer --selftest --out "out/selftest-macos-$(uname -m).json"
+          packaging/macos/build_dmg.sh NMR-Analyzer.app NMR-Analyzer "$NMR_VERSION"
 
-      - name: Build the Windows installer
+      # -- Windows: installer + portable zip, then a silent install/uninstall test
+      - name: Package (Windows)
         if: matrix.label == 'windows'
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          & dist-app\NMR-Analyzer\NMR-Analyzer.exe --selftest --out out\selftest-windows.json | Out-Default
+          if (-not (Test-Path out\selftest-windows.json)) { exit 1 }
           choco install innosetup --no-progress -y
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            "/DAppVersion=$env:NMR_VERSION" packaging\windows-installer.iss
-          Copy-Item "packaging\Output\NMR-Analyzer-Setup.exe" `
-            "out\NMR-Analyzer-$env:NMR_VERSION-windows-setup.exe"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:NMR_VERSION" packaging\windows-installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Compress-Archive -Path dist-app\NMR-Analyzer -DestinationPath "out\NMR-Analyzer-$env:NMR_VERSION-windows-x64-portable.zip"
+          $setup = Get-ChildItem out\NMR-Analyzer-*-windows-x64-setup.exe | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/DIR=C:\nmr-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
+          & C:\nmr-test\NMR-Analyzer.exe --selftest --out out\selftest-windows-installed.json | Out-Default
+          if (-not (Test-Path out\selftest-windows-installed.json)) { exit 1 }
+          $u = Start-Process C:\nmr-test\unins000.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait -PassThru
+          if ($u.ExitCode -ne 0) { exit 1 }
 
-      # -- macOS: a drag-to-Applications disk image
-      - name: Package (macOS)
-        if: matrix.label == 'macos'
-        shell: bash
-        run: |
-          mkdir -p out staging
-          cp -R "dist-app/NMR-Analyzer.app" staging/
-          ln -s /Applications staging/Applications
-          hdiutil create -volname "NMR Analyzer" -srcfolder staging \
-            -ov -format UDZO "out/NMR-Analyzer-${NMR_VERSION}-macos.dmg"
-
-      # -- Linux: one self-contained binary
+      # -- Linux: .tar.gz with a per-user install.sh, and a .deb
       - name: Package (Linux)
         if: matrix.label == 'linux'
-        shell: bash
         run: |
           mkdir -p out
-          cp "dist-app/NMR-Analyzer" "out/NMR-Analyzer-${NMR_VERSION}-linux"
-          chmod +x "out/NMR-Analyzer-${NMR_VERSION}-linux"
+          dist-app/NMR-Analyzer/NMR-Analyzer --selftest --out out/selftest-linux.json
+          packaging/linux/build_linux.sh "$NMR_VERSION"
+          sudo apt-get update && sudo apt-get install -y ./out/nmr-analyzer_*_amd64.deb
+          nmr-analyzer --selftest --out out/selftest-linux-deb.json
+          sudo apt-get remove -y nmr-analyzer
+          mkdir -p /tmp/t && tar -C /tmp/t -xzf out/NMR-Analyzer-*-linux-x86_64.tar.gz
+          HOME=/tmp/home /tmp/t/NMR-Analyzer/install.sh
+          /tmp/home/.local/bin/nmr-analyzer --selftest --out out/selftest-linux-tar.json
 
-      - name: Check the build actually starts
-        shell: bash
-        run: |
-          python - <<'EOF'
-          import os, subprocess, sys
-          # A GUI cannot be launched on a headless runner, but a corrupt bundle
-          # fails immediately, so a short run that does not crash is meaningful.
-          out = "out"
-          names = sorted(os.listdir(out))
-          print("built:", names)
-          assert names, "nothing was packaged"
-          for name in names:
-              size = os.path.getsize(os.path.join(out, name))
-              print("%s  %.1f MB" % (name, size / 1e6))
-              assert size > 3_000_000, "%s is too small to contain Python" % name
-          EOF
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: nmr-analyzer-${{ matrix.label }}
+          name: nmr-analyzer-${{ matrix.os }}
+          if-no-files-found: error
           path: out/*
 
   wheel:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip build
       - run: python -m build --outdir out .
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nmr-analyzer-wheel
           path: out/*
 
   release:
     needs: [build, wheel]
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - name: Attach the builds to the release
-        uses: softprops/action-gh-release@v2
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          mkdir -p reports && mv artifacts/selftest-*.json reports/
+          cat reports/*.json
+          V="${GITHUB_REF_NAME#v}"
+          python3 packaging/release_notes.py --dir artifacts --repo "$GITHUB_REPOSITORY" \
+            --tag "$GITHUB_REF_NAME" --name "NMR Analyzer" --notes "docs/release-notes/$V.md" > notes.md
+          cat artifacts/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7
         with:
-          files: artifacts/**/*
-          fail_on_unmatched_files: true
+          name: release-preview
+          path: |
+            artifacts/SHA256SUMS.txt
+            notes.md
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/* --title "NMR Analyzer ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag
+          fi

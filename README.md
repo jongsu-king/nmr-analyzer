@@ -30,10 +30,28 @@ Scroll to **Assets** on that page and download one of:
 
 | Your machine | Download | What to do |
 |---|---|---|
-| **Windows** | `NMR-Analyzer-<version>-windows-setup.exe` | Run it. Installs to Program Files with a Start-menu entry. |
-| **Windows** (no install) | `NMR-Analyzer-<version>-windows.exe` | Just run it. Single file, nothing is written to the system. |
-| **macOS** | `NMR-Analyzer-<version>-macos.dmg` | Open it and drag the app to Applications. |
-| **Linux** | `NMR-Analyzer-<version>-linux` | `chmod +x` it and run it. |
+| **Windows 10/11** | `NMR-Analyzer-<version>-windows-x64-setup.exe` | Run it. Installs for the current user (no administrator rights) with a Start-menu entry and *Open with* for `.esp`, `.jdx`, `.nmrs`. |
+| **Windows** (no install) | `NMR-Analyzer-<version>-windows-x64-portable.zip` | Unzip anywhere and run `NMR-Analyzer.exe`. Nothing is written to the system. |
+| **macOS, Apple silicon** (M1–M4) | `NMR-Analyzer-<version>-macos-arm64.dmg` | Open it and drag the app to Applications. |
+| **macOS, Intel** | `NMR-Analyzer-<version>-macos-x86_64.dmg` | Open it and drag the app to Applications. |
+| **Ubuntu / Debian** | `nmr-analyzer_<version>_amd64.deb` | `sudo apt install ./nmr-analyzer_<version>_amd64.deb` |
+| **Other Linux** | `NMR-Analyzer-<version>-linux-x86_64.tar.gz` | Unpack and run `NMR-Analyzer/install.sh` (current user), or run `NMR-Analyzer/NMR-Analyzer` in place. |
+| **Python** | `nmranalyzer-<version>-py3-none-any.whl` | `pip install` it (needs tkinter). |
+
+`SHA256SUMS.txt` on the same page lists the checksum of every file. The full
+guide - which Mac you have, first-start prompts, uninstalling, unattended
+installation - is **[docs/INSTALL.md](docs/INSTALL.md)**.
+
+### Automatic updates
+
+An installed copy keeps itself current: once a day it asks GitHub whether a
+newer release exists, downloads the file for your system, checks it against
+`SHA256SUMS.txt` and installs it when you close the program (or straight away
+if you pick *Restart now*). **Help → Automatic updates** switches between
+*download and install*, *only tell me* and *off*; **Help → Check for updates…**
+checks on demand. Only the program name and version are sent. Copies run from
+source or installed with pip are never modified - they show the command to
+update instead. Details: [docs/INSTALL.md](docs/INSTALL.md#automatic-updates).
 
 ### Windows
 
@@ -44,9 +62,11 @@ then **Run anyway**.
 
 ### macOS
 
-macOS blocks unsigned apps on first launch for the same reason. **Right-click
-the app and choose Open** (double-clicking only offers *Cancel*, with no way
-through), then confirm in the dialog. You only have to do this once.
+macOS blocks unsigned apps on first launch for the same reason. Open
+**System Settings → Privacy & Security**, scroll down and click **Open Anyway**
+next to the NMR Analyzer message, then confirm (on macOS 14 and older,
+right-clicking the app and choosing **Open** also works). You only have to do
+this once.
 
 If you see *"NMR Analyzer is damaged"* instead, macOS quarantined the download;
 clear the flag with:

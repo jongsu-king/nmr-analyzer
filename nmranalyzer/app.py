@@ -1044,7 +1044,19 @@ class App(tk.Tk):
         help_menu.add_command(label="Keyboard Shortcuts",
                               command=self.show_shortcuts)
         help_menu.add_command(label="About %s" % APP_NAME, command=self.show_about)
+        help_menu.add_command(
+            label="Installation and updates (web)",
+            command=lambda: __import__("webbrowser").open(
+                "https://github.com/jongsu-king/nmr-analyzer/blob/main/docs/INSTALL.md"))
+        help_menu.add_separator()
         menu.add_cascade(label="Help", menu=help_menu)
+        try:
+            from . import selfupdate
+            self.updater = selfupdate.Updater(update_app(selfupdate))
+            selfupdate.attach_tk(self, self.updater, help_menu, lang="en",
+                                 status=lambda text: text and self.status.set(text))
+        except Exception as exc:  # updates must never stop the program
+            print("update support unavailable: %s" % exc)
 
         self.config(menu=menu)
         self.refresh_recent_menu()
@@ -2395,9 +2407,54 @@ FILE may be any of:
 Options:
   -h, --help     show this message and exit
   -V, --version  show the version and exit
+  --selftest     process a synthetic spectrum without a window and exit
+                 (--out FILE writes the result as JSON)
+  --update       check GitHub for a newer release and, for an installed
+                 copy, download, verify and install it
 
 With no arguments the application starts empty; use File > Open.
 """
+
+
+def update_app(selfupdate):
+    from . import __version__
+    return selfupdate.App(repo="jongsu-king/nmr-analyzer", name=APP_NAME,
+                          version=__version__, env_prefix="NMR_ANALYZER",
+                          pip_name="nmranalyzer")
+
+
+def selftest(out=None):
+    """Headless check used by the installer builds: transform a synthetic FID,
+    pick its peaks and integrate them, without opening a window."""
+    import json
+    import math
+    from . import __version__, analysis, dsp, nmrio  # noqa: F401 - import check
+
+    result = {"version": __version__,
+              "frozen": bool(getattr(__import__("sys"), "frozen", False))}
+    try:
+        sw, n = 4000.0, 4096
+        dwell = 1.0 / sw
+        lines = [(+600.0, 1.0), (-400.0, 2.0)]          # Hz offset, amplitude
+        fid = [sum(a * complex(math.cos(2 * math.pi * f * k * dwell),
+                               math.sin(2 * math.pi * f * k * dwell))
+                   for f, a in lines) * math.exp(-k * dwell * 3.0) for k in range(n)]
+        spec = dsp.transform(fid, dwell, 8192, lb=0.3)
+        real = [c.real for c in spec]
+        top = sorted(range(len(real)), key=real.__getitem__)[-1]
+        freq = (len(real) / 2 - top) * sw / len(real)
+        result["strongest_line_hz"] = round(freq, 1)
+        result["ok"] = abs(freq - (-400.0)) < 2.0
+    except Exception as exc:  # noqa: BLE001
+        result["ok"] = False
+        result["error"] = repr(exc)
+    text = json.dumps(result, indent=2)
+    if out:
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+    else:
+        print(text)
+    return 0 if result["ok"] else 1
 
 
 def main(argv=None):
@@ -2411,6 +2468,12 @@ def main(argv=None):
     if any(a in ("-V", "--version") for a in argv):
         print("NMR Analyzer %s" % __version__)
         return 0
+    if "--selftest" in argv:
+        out = argv[argv.index("--out") + 1] if "--out" in argv else None
+        return selftest(out)
+    if "--update" in argv:
+        from . import selfupdate
+        return selfupdate.cli(selfupdate.Updater(update_app(selfupdate)))
 
     app = App()
     for path in argv:

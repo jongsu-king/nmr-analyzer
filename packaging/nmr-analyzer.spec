@@ -6,6 +6,7 @@
 # and quadruple the download for no benefit.
 
 import os
+import re
 import sys
 
 NAME = "NMR-Analyzer"
@@ -17,8 +18,11 @@ ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
 EXCLUDES = [
     "numpy", "scipy", "matplotlib", "pandas", "PIL", "IPython",
     "pytest", "setuptools", "pip", "wheel", "distutils",
-    "sqlite3", "email", "http", "xmlrpc", "pydoc_data", "unittest",
+    "sqlite3", "xmlrpc", "pydoc_data", "unittest",
 ]
+# (http, email and ssl stay: the automatic updater talks HTTPS to GitHub.)
+with open(os.path.join(ROOT, "nmranalyzer", "__init__.py"), encoding="utf-8") as fh:
+    VERSION = re.search(r'__version__ = "([^"]+)"', fh.read()).group(1)
 
 analysis = Analysis(
     ["entry.py"],
@@ -26,7 +30,8 @@ analysis = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=["tkinter", "tkinter.ttk", "tkinter.filedialog",
-                   "tkinter.messagebox", "tkinter.colorchooser"],
+                   "tkinter.messagebox", "tkinter.colorchooser",
+                   "nmranalyzer.selfupdate"],
     hookspath=[],
     runtime_hooks=[],
     excludes=EXCLUDES,
@@ -34,20 +39,20 @@ analysis = Analysis(
 )
 pyz = PYZ(analysis.pure)
 
+# One folder on every platform: it starts faster than a self-unpacking single
+# file, and the in-app updater replaces the folder (or the .app) as a whole.
+exe = EXE(
+    pyz, analysis.scripts, [],
+    exclude_binaries=True,
+    name=NAME,
+    console=False,
+    icon=os.path.join(ICON_DIR, "icon.icns" if sys.platform == "darwin" else "icon.ico"),
+)
+collect = COLLECT(
+    exe, analysis.binaries, analysis.datas,
+    strip=False, upx=False, name=NAME,
+)
 if sys.platform == "darwin":
-    # One directory, wrapped in a .app -- macOS refuses to notarise, and
-    # Gatekeeper is unhappy with, a single-file binary that unpacks itself.
-    exe = EXE(
-        pyz, analysis.scripts, [],
-        exclude_binaries=True,
-        name=NAME,
-        console=False,
-        icon=os.path.join(ICON_DIR, "icon.icns"),
-    )
-    collect = COLLECT(
-        exe, analysis.binaries, analysis.datas,
-        strip=False, upx=False, name=NAME,
-    )
     app = BUNDLE(
         collect,
         name="%s.app" % NAME,
@@ -56,10 +61,10 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "NMR Analyzer",
             "CFBundleDisplayName": "NMR Analyzer",
-            "CFBundleShortVersionString": os.environ.get("NMR_VERSION", "0.0.0"),
-            "CFBundleVersion": os.environ.get("NMR_VERSION", "0.0.0"),
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSHighResolutionCapable": True,
-            "LSMinimumSystemVersion": "10.13",
+            "LSMinimumSystemVersion": "11.0",
             "CFBundleDocumentTypes": [{
                 "CFBundleTypeName": "NMR data",
                 "CFBundleTypeRole": "Viewer",
@@ -67,15 +72,4 @@ if sys.platform == "darwin":
                 "CFBundleTypeExtensions": ["esp", "jdx", "dx", "nmrs", "zip"],
             }],
         },
-    )
-else:
-    # A single self-contained file is the friendliest thing to hand someone
-    # on Windows and Linux.
-    exe = EXE(
-        pyz, analysis.scripts, analysis.binaries, analysis.datas, [],
-        name=NAME,
-        console=False,
-        strip=False,
-        upx=False,
-        icon=os.path.join(ICON_DIR, "icon.ico"),
     )

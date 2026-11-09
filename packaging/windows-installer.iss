@@ -1,7 +1,8 @@
 ; Inno Setup script for the Windows installer.
 ;
-; The payload is the single PyInstaller executable, so there is nothing to
-; unpack beyond copying it into Program Files and creating the shortcuts.
+; The payload is the one-folder PyInstaller build (NMR-Analyzer.exe + _internal).
+; Installs for the current user by default (no administrator rights), so the
+; in-app updater can upgrade it silently.
 ; AppVersion is passed in by the build workflow with /DAppVersion=...
 
 #ifndef AppVersion
@@ -23,14 +24,18 @@ AppSupportURL={#AppUrl}/issues
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
-OutputBaseFilename=NMR-Analyzer-Setup
+OutputDir=..\out
+OutputBaseFilename=NMR-Analyzer-{#AppVersion}-windows-x64-setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 ; Per-user install needs no administrator rights.
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog commandline
+CloseApplications=yes
+ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
@@ -41,8 +46,11 @@ Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; \
   GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
+[InstallDelete]
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
-Source: "..\dist-app\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist-app\NMR-Analyzer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; DestName: "README.md"; \
   Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
