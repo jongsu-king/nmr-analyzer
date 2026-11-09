@@ -3,6 +3,6 @@
 Standard library only; see README.md for the formats and the workflow.
 """
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 __author__ = "Jongsu Lim"
 __license__ = "MIT"
